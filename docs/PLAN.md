@@ -641,7 +641,7 @@ Implementation proceeds in three distinct phases: Core & Builders first, Module 
 2. Add the small standard `lib.lock` helper for explicit `flake.lock` paths and tests for node/edge/follows identity;
 3. Refactor `src/evalFlake.nix` into the single target-bound constructor (`lib.flake { targetFlake }`);
 4. Extract `src/inventory.nix` and implement lazy, protocol-compliant `flake-schemas` inventory;
-5. Extract `src/evaluation.nix`, implement atomic failures with explicit `__error` sentinels and one-hop scalar `child` causal propagation, and add focused unit tests;
+5. Extract `src/evaluation.nix`, implement atomic failures with explicit `_type = "error"` sentinels and one-hop scalar `child` causal propagation, and add focused unit tests;
 6. Rename/expand `test/_fixtures/basic-flake` into `test/_fixtures/minimal-complete-flake` and update copied snapshots atomically;
 7. Add `test/nested-failure.nix` and compare concatenated child links with deliberate `nix eval --show-trace` failures;
 8. Add `test/serialization.nix` and JSON conversion probes before relying on the serialization contract;
