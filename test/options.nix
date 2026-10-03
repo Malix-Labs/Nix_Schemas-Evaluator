@@ -31,28 +31,24 @@ let
   syntheticFlake = {
     schemas = { };
     nixosModules = {
-      submoduleTest =
-        { ... }:
-        {
-          options.server = lib.mkOption {
-            type = lib.types.submodule {
-              options = {
-                port = lib.mkOption {
-                  type = lib.types.int;
-                  default = 8080;
-                  description = "Server port";
-                };
+      submoduleTest = _: {
+        options.server = lib.mkOption {
+          type = lib.types.submodule {
+            options = {
+              port = lib.mkOption {
+                type = lib.types.int;
+                default = 8080;
+                description = "Server port";
               };
             };
-            description = "Server settings";
           };
+          description = "Server settings";
         };
+      };
 
-      failingModule =
-        { ... }:
-        {
-          options.broken = throw "module evaluation boom";
-        };
+      failingModule = _: {
+        options.broken = throw "module evaluation boom";
+      };
     };
   };
 

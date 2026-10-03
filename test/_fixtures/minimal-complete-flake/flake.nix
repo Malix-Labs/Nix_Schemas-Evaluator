@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
   outputs =
-    { self, nixpkgs }:
+    { nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -198,43 +198,37 @@
       };
 
       overlays = {
-        default = final: prev: { };
+        default = _: _: { };
       };
 
       nixosModules = {
-        default =
-          { ... }:
-          {
-            options.testOpt = nixpkgs.lib.mkOption {
-              type = nixpkgs.lib.types.str;
-              default = "val";
-              description = "Test option";
-            };
+        default = _: {
+          options.testOpt = nixpkgs.lib.mkOption {
+            type = nixpkgs.lib.types.str;
+            default = "val";
+            description = "Test option";
           };
+        };
       };
 
       darwinModules = {
-        default =
-          { ... }:
-          {
-            options.darwinOpt = nixpkgs.lib.mkOption {
-              type = nixpkgs.lib.types.bool;
-              default = true;
-              description = "Darwin option";
-            };
+        default = _: {
+          options.darwinOpt = nixpkgs.lib.mkOption {
+            type = nixpkgs.lib.types.bool;
+            default = true;
+            description = "Darwin option";
           };
+        };
       };
 
       homeModules = {
-        default =
-          { ... }:
-          {
-            options.homeOpt = nixpkgs.lib.mkOption {
-              type = nixpkgs.lib.types.int;
-              default = 42;
-              description = "Home option";
-            };
+        default = _: {
+          options.homeOpt = nixpkgs.lib.mkOption {
+            type = nixpkgs.lib.types.int;
+            default = 42;
+            description = "Home option";
           };
+        };
       };
 
       # Custom node specified in PLAN.md Section 6.2 for path selection tests

@@ -29,10 +29,7 @@
 let
   inherit (evaluation)
     mkError
-    isError
-    statusFromStatuses
     addEvaluation
-    safeValue
     ;
 
   # Documentation item projection helper conforming to nixpkgs PR #553364
@@ -103,7 +100,7 @@ let
     let
       docTree = foldOptionSet {
         onOption =
-          doc: subDocs: opt:
+          doc: subDocs: _opt:
           {
             _type = "option";
           }
@@ -126,7 +123,7 @@ let
       let
         res = lib.options.optionToDoc opt;
       in
-      if res ? options then res.options else res
+      res.options or res
     else
       defaultOptionToDoc;
 

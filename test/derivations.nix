@@ -28,7 +28,7 @@ let
     testPreservesRawDerivationThunk = {
       expr = {
         isDrv = lib.isDerivation helloDrv;
-        type = helloDrv.type;
+        inherit (helloDrv) type;
         hasDrvPath = builtins.isString helloDrv.drvPath;
         hasOutPath = builtins.isString helloDrv.outPath;
       };

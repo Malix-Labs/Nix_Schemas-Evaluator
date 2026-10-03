@@ -35,7 +35,6 @@ resolvedFlake: allSchemas:
 let
   inherit (evaluation)
     mkError
-    isError
     statusFromStatuses
     addEvaluation
     safeValue
@@ -103,14 +102,14 @@ let
 
   # Evaluates explicit package derivation fields
   evalDrvPackage =
-    currPath: drv:
+    _currPath: drv:
     if !safe then
       # Strict evaluation: throw directly if accessing fields throws
       let
-        metaVal = if drv ? meta then drv.meta else { };
+        metaVal = drv.meta or { };
       in
       {
-        name = drv.name;
+        inherit (drv) name;
         pname = drv.pname or null;
         version = drv.version or null;
         system = drv.system or null;
@@ -163,14 +162,10 @@ let
               else
                 {
                   success = true;
-                  value = res.value;
+                  inherit (res) value;
                   status = "passing";
                   failures = [ ];
                 };
-
-          fieldKeys = lib.filter (k: lib.elem k exportedDerivationKeys) (
-            lib.unique (exportedDerivationKeys ++ namesResult.value)
-          );
 
           evaluatedFields = map (
             key:
@@ -226,11 +221,11 @@ let
 
   # Evaluates app output
   evalApp =
-    currPath: app:
+    _currPath: app:
     if !safe then
       {
         type = "app";
-        program = app.program;
+        inherit (app) program;
       }
       // lib.optionalAttrs (app ? meta) { inherit (app) meta; }
     else
@@ -278,7 +273,7 @@ let
               }
             else
               {
-                value = programRes.value;
+                inherit (programRes) value;
                 status = "passing";
               };
 
@@ -319,7 +314,7 @@ let
 
   # Enrich an individual item (derivation, app, template, etc.)
   enrichItem =
-    currPath: schemaKey: system: itemName: rawVal: itemInventoryNode:
+    currPath: schemaKey: _system: _itemName: rawVal: itemInventoryNode:
     let
       isDrv = (lib.tryEval (lib.isDerivation rawVal)).value or false;
       baseNode = itemInventoryNode;
@@ -462,7 +457,7 @@ let
 
             # Missing children that were explicitly requested
             missingChildren = map (name: {
-              name = name;
+              inherit name;
               res = {
                 value = mkError {
                   kind = "missing_attribute";
@@ -496,7 +491,7 @@ let
 
             childAttrset = lib.listToAttrs (
               map (c: {
-                name = c.name;
+                inherit (c) name;
                 value = c.res.value;
               }) filteredChildResults
             );

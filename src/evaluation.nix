@@ -136,7 +136,7 @@ rec {
       if isError evalAttempt.value then
         {
           success = false;
-          value = evalAttempt.value;
+          inherit (evalAttempt) value;
           status = "failing";
           failures = [ ];
         }
@@ -190,7 +190,7 @@ rec {
 
             materializedValues = lib.listToAttrs (
               map (c: {
-                name = c.name;
+                inherit (c) name;
                 value = c.childRes.value;
               }) childrenResults
             );
@@ -245,7 +245,7 @@ rec {
       # Primitive scalar value (null, bool, int, float, string, path)
       {
         success = true;
-        value = evalAttempt.value;
+        inherit (evalAttempt) value;
         status = "passing";
         failures = [ ];
       };

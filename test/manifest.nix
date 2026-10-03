@@ -88,7 +88,7 @@ let
     # 5. App preserves standard 'program' and 'type = app'
     testAppProjection = {
       expr = {
-        type = helloApp.type;
+        inherit (helloApp) type;
         hasProgram = builtins.isString helloApp.program;
       };
       expected = {

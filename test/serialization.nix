@@ -69,8 +69,7 @@ let
       expr = {
         nullVal = parsedScalars.nullField;
         boolVal = parsedScalars.boolTrue;
-        intVal = parsedScalars.intVal;
-        strVal = parsedScalars.strVal;
+        inherit (parsedScalars) intVal strVal;
         listLen = builtins.length parsedScalars.listVal;
       };
       expected = {

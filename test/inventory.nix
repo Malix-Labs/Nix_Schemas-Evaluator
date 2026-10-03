@@ -4,7 +4,6 @@ let
   evaluator = flake { inherit targetFlake; };
 
   invSafe = evaluator.inventory { safe = true; };
-  invStrict = evaluator.inventory { safe = false; };
 
   # Verify laziness: accessing attrNames of packages children must succeed
   pkgNames = builtins.attrNames invSafe.packages.children.x86_64-linux.children;
@@ -26,7 +25,7 @@ let
 
     testProtocolMetadataFieldsPreserved = {
       expr = {
-        what = safeAppNode.what;
+        inherit (safeAppNode) what;
         hasSystems = lib.elem "aarch64-linux" safeAppNode.forSystems;
         isValid = safeAppNode.evalChecks.isValidApp;
       };

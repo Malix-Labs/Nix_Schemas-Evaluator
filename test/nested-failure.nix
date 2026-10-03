@@ -1,6 +1,6 @@
 { lib, evaluation }:
 let
-  inherit (evaluation) safeValue mkError isError;
+  inherit (evaluation) safeValue isError;
 
   # Test tree with a 3-level deep failure: root -> intermediate -> leaf (throws)
   deepTree = {
@@ -97,7 +97,7 @@ let
     # 7. Direct children throw gets atomic record at child = "children" on owning node
     testDirectChildrenThrow = {
       expr = {
-        status = throwingResult.status;
+        inherit (throwingResult) status;
         isErr = isError throwingResult.value.children;
         kind = throwingResult.value.children.kind;
       };
