@@ -1,1 +1,1 @@
-{ evalTarget }: evalTarget ("path:" + toString ./_fixtures/basic-flake)
+{ evalTarget }: evalTarget ("path:" + toString ./_fixtures/minimal-complete-flake)

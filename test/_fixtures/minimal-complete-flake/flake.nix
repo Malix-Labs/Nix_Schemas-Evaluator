@@ -1,5 +1,5 @@
 {
-  description = "Test flake for flake_info.nix";
+  description = "Minimal complete fixture for Nix Schemas Evaluator";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -88,28 +88,24 @@
               dontUnpack = true;
             };
 
-            # Not a derivation, so it has no `name` -- must be dropped rather
-            # than emitted as a name-less package entry.
+            # Not a derivation, so it has no `name`
             not-a-derivation = {
               some = "attrset";
             };
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
-            # Darwin-only package
             darwin-specific = pkgs.writeShellScriptBin "darwin-test" ''
               echo "Darwin only"
             '';
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-            # Linux-only package
             linux-specific = pkgs.writeShellScriptBin "linux-test" ''
               echo "Linux only"
             '';
           }
         )
         // {
-          # A system whose entire package set throws -- that system must be
-          # skipped rather than aborting evaluation of the whole flake.
+          # A system whose entire package set throws
           riscv64-linux = throw "this system is not supported";
         };
 
@@ -124,22 +120,20 @@
             program = pkgs.hello.outPath + "/bin/hello";
           };
 
-          # Throws on every system: the attribute is dropped rather than
-          # aborting evaluation of the whole flake.
+          # Throws on every system
           throwing-app = {
             type = "app";
             program = throw "this app cannot be evaluated";
           };
 
-          # Throws only on darwin: the attribute survives, listing just the
-          # platforms it evaluated on.
+          # Replaced darwin-only throw with meta.platforms as per Section 6.1
           partly-throwing-app = {
             type = "app";
-            program =
-              if pkgs.stdenv.isDarwin then
-                throw "this app is unsupported on darwin"
-              else
-                pkgs.hello.outPath + "/bin/hello";
+            program = pkgs.hello.outPath + "/bin/hello";
+            meta.platforms = [
+              "x86_64-linux"
+              "aarch64-linux"
+            ];
           };
         }
       );
@@ -157,5 +151,112 @@
           };
         }
       );
+
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          test-check = pkgs.runCommand "test-check" { } "touch $out";
+        }
+      );
+
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          default = pkgs.mkShell { };
+        }
+      );
+
+      formatter = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        pkgs.nixfmt-rfc-style or pkgs.nixfmt
+      );
+
+      templates = {
+        default = {
+          path = ./.;
+          description = "Default template";
+        };
+      };
+
+      hydraJobs = {
+        build = forAllSystems (
+          system:
+          let
+            pkgs = import nixpkgs { inherit system; };
+          in
+          pkgs.hello
+        );
+      };
+
+      overlays = {
+        default = final: prev: { };
+      };
+
+      nixosModules = {
+        default =
+          { ... }:
+          {
+            options.testOpt = nixpkgs.lib.mkOption {
+              type = nixpkgs.lib.types.str;
+              default = "val";
+              description = "Test option";
+            };
+          };
+      };
+
+      darwinModules = {
+        default =
+          { ... }:
+          {
+            options.darwinOpt = nixpkgs.lib.mkOption {
+              type = nixpkgs.lib.types.bool;
+              default = true;
+              description = "Darwin option";
+            };
+          };
+      };
+
+      homeModules = {
+        default =
+          { ... }:
+          {
+            options.homeOpt = nixpkgs.lib.mkOption {
+              type = nixpkgs.lib.types.int;
+              default = 42;
+              description = "Home option";
+            };
+          };
+      };
+
+      # Custom node specified in PLAN.md Section 6.2 for path selection tests
+      custom = {
+        children = {
+          good = {
+            value = 1;
+          };
+          bad = {
+            value = throw "bad child";
+          };
+        };
+      };
+
+      schemas = {
+        custom = {
+          version = 1;
+          doc = "Custom schema for selection tests";
+          inventory = output: {
+            inherit (output) children;
+          };
+        };
+      };
     };
 }
