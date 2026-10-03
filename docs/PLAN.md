@@ -220,32 +220,35 @@ The DeterminateSystems `flake-schemas` specification is a tool protocol designed
 - A wire format or error envelope for partial-evaluation failures.
 - A collection mechanism for unstripped buildable derivations in CI pipelines.
 
-#### 5.3.3 Architectural boundary and open decision on `inventory` scope
+#### 5.3.3 Architectural boundary and locked `inventory` scope (Approach A selected)
 
-The target-bound constructor exposes three views, with an open architectural decision regarding how strictly `inventory` couples to upstream `flake-schemas`:
+The target-bound constructor exposes three views, with the boundary for `inventory` locked as follows:
 
-1. **`inventory` (Open Decision Point: Strictness vs. Extension)**:
-   - **Approach A (Strict drop-in compliance)**: Conforms strictly to DeterminateSystems `flake-schemas`. Returns only the descriptive `children` tree and standard metadata (`what`, `shortDescription`, `derivationAttrPath`, `forSystems`). Evaluator-specific metadata, values, and module options are excluded, ensuring drop-in compatibility with `nix flake show`-like tooling.
-   - **Approach B (Enriched descriptive tree)**: Reuses `children` and standard schema fields, but allows evaluator-specific diagnostic metadata or richer descriptive extensions directly in `inventory`.
-   - **Approach C (Dual exposure)**: Exposes both a strictly compliant upstream inventory and a separate diagnostic inventory view.
+1. **`inventory` (Locked: Strict upstream drop-in compliance — Approach A)**:
+   - Conforms strictly to DeterminateSystems `flake-schemas`. Returns only the standard descriptive `children` tree and spec-defined metadata (`what`, `shortDescription`, `derivationAttrPath`, `forSystems`, `evalChecks`).
+   - **Laziness preservation**: Merely listing outputs (`builtins.attrNames inventory.packages.x86_64-linux.children`) never forces the underlying derivation or attribute evaluation. Computing aggregate statuses (e.g. `status = "partial"`) at parent containers would require evaluating every single child in the tree, completely destroying Nix's lazy evaluation model for large flakes.
+   - **Collision-free ecosystem compatibility**: Adding evaluator-specific sidecars (like `__evaluation`) inside `children` breaks downstream tools (such as `nix flake show` or `flakestry`) that map over child keys, treating `__evaluation` as a bogus package name.
+   - **Failure signaling via `evalChecks`**: When an attribute throws or fails in safe mode, the node's standard `evalChecks` booleans (e.g. `evalChecks.evaluates = false`) reflect the failure without injecting foreign metadata into the tree. Detailed causal traces, option trees, and materialization belong strictly to `manifest`.
+   - *Alternative B (Enriched inventory)* was rejected because parent status aggregation forces eager evaluation across all outputs and breaks drop-in schema validation.
+   - *Alternative C (Dual exposure)* was rejected to avoid API bloat and maintenance overhead.
 
 2. **`manifest` (Enriched data projection)**:
-   A project-owned, JSON-serializable projection designed for external consumers (`nixos-search`, IDEs, indexers). It materializes package metadata, app execution details, and module options into a structured tree with deterministic partial-failure annotations.
+   A project-owned, JSON-serializable projection designed for external consumers (`nixos-search`, IDEs, indexers). It materializes package metadata, app execution details, and module options into a structured tree with deterministic partial-failure annotations and path-based selection.
 
 3. **`derivations` (Raw builder collection)**:
    A Nix-native projection designed for CI builders (`nix-fast-build`, `nix-eval-jobs`, `nix build`, Hydra). It collects raw derivation objects (`type = "derivation"`, `drvPath`, `outPath`) directly from the schema nodes without stripping derivation internals or converting them to plain JSON records.
 
 ---
 
-### 5.4 Open Decision Point: Failure representation and programming language semantics
+### 5.4 Failure representation and programming language semantics (Locked: Alternative 5B — Typed Error Object)
 
 In programming language theory, handling partial evaluation across a recursive tree exposes a fundamental semantic distinction between:
 - **Absence** (`Option<T> = None | Some(T)`): A field is not defined or has an intentional `null` value.
 - **Recoverable Failure** (`Result<T, E> = Ok(T) | Err(E)`): A field was requested or required, but evaluating it produced an exception (e.g. `throw`, `abort`, missing attribute, or type error).
 
-The representation of failure in safe evaluation mode remains an **open architectural decision**. Below are the candidate models, their concrete wire shapes, and their trade-offs:
+The representation of failure in safe evaluation mode is **locked to Alternative 5B (`_type = "error"`)**. Below is the comparative analysis and the rationale for this selection.
 
-#### 5.4.1 Candidate failure representations compared
+#### 5.4.1 Evaluated failure models compared
 
 Consider evaluating a flake output with three items:
 ```nix
@@ -304,16 +307,29 @@ custom = {
    - *Pros*: Leaves data tree free of failure sentinels.
    - *Cons*: Requires client-side path index lookups, string concatenation, and decouples errors from the data tree.
 
-5. **Candidate 5: Sparse tagged sentinel at failed leaves**
+5. **Candidate 5A: Leaf envelope with `__error` sentinel**
+   ```json
+   {
+     "good": { "value": 1 },
+     "nil":  { "value": null },
+     "bad":  {
+       "value": { "__error": { "kind": "evaluation", "message": "boom" } },
+       "__evaluation": { "status": "failing", "failures": [{ "child": "value", "kind": "cascade" }] }
+     }
+   }
+   ```
+   - *Rejected*: In Nix, double-underscore attributes (`__functor`, `__toString`, `__functionArgs`) are reserved exclusively by the C++ engine for evaluator builtins and meta-hooks. Nixpkgs `lib` does not use `__` for data structures.
+
+6. **Candidate 5B: Typed error object with `_type = "error"` (Locked & Selected)**
    ```json
    {
      "good": { "value": 1 },
      "nil":  { "value": null },
      "bad":  {
        "value": {
-         "__error": {
-           "kind": "evaluation_failure"
-         }
+         "_type": "error",
+         "kind": "evaluation",
+         "message": "boom"
        },
        "__evaluation": {
          "status": "failing",
@@ -324,11 +340,12 @@ custom = {
      }
    }
    ```
-   - *Pros*: Successful values and valid `null` retain their exact ordinary shape with zero wrapping overhead. Unavailable values are self-describing at the leaf (`val.__error`), while parent containers retain `__evaluation` for aggregate status and scalar causal links.
-   - *Cons*: Reserves the `__error` namespace and replaces a scalar with an object only at failed leaves.
+   - *Selected*: Follows standard Nixpkgs conventions (`_type = "option"`, `_type = "derivation"`, `_type = "override"`). Nixpkgs itself uses this exact pattern in `lib/types.nix` (`mergeTypes` returns `{ _type = "merge-error"; error = "..."; }` created via `setType`).
+   - Consumers can check `(leaf._type or null) == "error"` or `lib.isType "error" leaf`.
+   - Successful values and legitimate `null` values retain their exact native shapes without unwrapping overhead. Only failed leaves are replaced by this self-describing typed error object.
 
 #### 5.4.2 Causal child propagation
-Regardless of the leaf failure encoding chosen, non-passing parent containers in `safe = true` mode maintain causal navigation:
+Regardless of leaf failure sentinel encoding, non-passing parent containers in `safe = true` mode maintain causal navigation:
 - Each non-passing parent container includes an `__evaluation` sidecar.
 - The `failures` list contains one-hop records pointing to the immediate non-passing child (`child = "fieldName"`).
 - Propagation records use `kind = "cascade"`, allowing a consumer inspecting an ancestor to navigate directly to the failed leaf without scanning unrelated branches.
@@ -435,7 +452,7 @@ For search engines, indexers, and web frontends, raw derivations cannot be expor
   name, pname, version, system, outputs, outputName, meta
   ```
 - Recursively materialize `meta` with the shared safe evaluator.
-- Unavailable or failing fields receive the explicit `__error` sentinel, accompanied by scalar `child` causal links in parent containers.
+- Unavailable or failing fields receive the explicit `_type = "error"` sentinel, accompanied by scalar `child` causal links in parent containers.
 - This produces a stable, deterministic, JSON-serializable package record.
 
 #### 5.8.2 `derivations` collection (Builders, `nix-fast-build`, `nix-eval-jobs`, and CI)
@@ -444,6 +461,7 @@ A JSON manifest cannot be passed to `nix build`, `nix-fast-build`, `nix-eval-job
 This project is the spiritual successor to [`srid/devour-flake`](https://github.com/srid/devour-flake/). `devour-flake` existed specifically to solve the CI problem: "how do I collect every buildable derivation in a flake into a single evaluation graph for CI builds?" The previous plan missed this builder use-case by treating derivations exclusively as JSON data.
 
 The `derivations` projection solves this directly at the Nix layer:
+- **Output Shape (Nested Attribute Set)**: Returns a **nested attribute set of derivations** preserving the flake's natural output hierarchy (e.g. `derivations.packages.x86_64-linux.hello = <drv>;`). This cleanly matches `nix-eval-jobs` and `nix-fast-build`'s native tree traversal, keeps job paths identical to flake output paths, and allows consumers to navigate subtrees naturally without string-splitting flattened keys.
 - **Schema-guided traversal**: Inspects schema inventory nodes that declare `derivationAttrPath` (or leaves satisfying `lib.isDerivation`).
 - **Preserves derivation thunks**: Does not strip derivation internals or coerce attributes into JSON records. Retains raw `type = "derivation"` objects.
 - **Evaluation vs. build separation**: Collecting derivations is strictly an evaluation-time operation. It dereferences the derivation graph without triggering builds, allowing external build schedulers (`nix-fast-build`, Hydra, or GitHub Actions runners) to manage compilation, concurrency, and caching.
