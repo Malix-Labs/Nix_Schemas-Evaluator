@@ -99,36 +99,22 @@ A `follows` relationship is therefore parsable from `flake.lock`: it is represen
 
 ### 2.2 Selected helper design
 
-**Alternative A — no helper at all.** Rejected as a usability choice: consumers can parse JSON themselves, but this project is a utility library and a small standard lock-graph helper is useful.
+**Alternative A — no helper at all (selected).** The evaluator's core responsibility is output schema discovery, materialization, and derivation collection. Dependency provenance is handled authoritatively by the Nix CLI (`nix flake metadata --json`).
 
 **Alternative B — make lock parsing part of `lib.flake.inventory`/`manifest`.** Rejected: dependency provenance is not flake-schemas output inventory and is not manifest output enrichment.
 
-**Alternative C — expose a small standalone lock helper (selected):** provide a pure helper such as:
-
-```nix
-lib.lock = {
-  read = { lockFile }: ...;
-  # or an equivalent explicit, dependency-free import helper
-};
-```
-
-It parses a supplied `flake.lock` and preserves the standard JSON graph without evaluating the target flake or dependency outputs. This is a convenience for consumers, not part of `lib.flake`’s semantic output contract. The helper may use the appropriate existing nixpkgs library JSON/import utilities rather than reimplementing JSON parsing.
-
-The helper accepts an explicit lock-file path or already-parsed lock value. It does not guess a lock file from an arbitrary evaluated attrset and does not silently call `nix flake metadata`.
+**Alternative C — expose a small standalone lock helper.** Rejected: lock-graph parsing is independent of output schema evaluation and adds unnecessary maintenance surface. External tools needing resolved input metadata can consume `nix flake metadata --json` directly.
 
 ### 2.3 What requires the Nix CLI
 
-A pure lock helper cannot provide all information that `nix flake metadata --json` can provide after resolving a reference, such as canonical resolved reference/store location and process-level diagnostics. Those are different from lock-file graph data.
+Dependency metadata and lock resolution require the Nix CLI (`nix flake metadata --json`) to provide canonical resolved reference/store locations, process-level diagnostics, and root commit hashes.
 
 **Selected boundary:**
 
-- `lib.lock.read` handles standard `flake.lock` graph data, including follows and node identity;
-- the core Nix evaluator handles schema/inventory/manifest semantics;
-- an optional host/package tool may invoke `nix flake metadata --json` for resolved metadata, exact stderr, and target references.
+- the core Nix evaluator handles schema/inventory/manifest/derivation semantics;
+- external consumers use `nix flake metadata --json` for resolved metadata, exact stderr, and lock-graph inspection.
 
-This avoids duplicate sources of truth and keeps the Nix library simple. A host tool may combine lock-helper output and CLI metadata in a clearly documented response, but it must not pretend the CLI result is part of the core manifest.
-
-Tools such as [`flake-edit list`](https://github.com/a-kenji/flake-edit#-flake-edit-list) demonstrate the usefulness of host-side flake/lock inspection and editing. That validates providing a small lock helper and optional host tooling; it does not require putting process orchestration into the Nix evaluator or inventing an evaluated input view.
+This avoids duplicate sources of truth and keeps the Nix library simple and focused purely on output schema evaluation.
 
 ## 3. Maintainer-local context
 
@@ -177,8 +163,7 @@ Use RFC 145-style Nix doc-comments (`/** ... */`) on public bindings and helpers
 - `src/manifest.nix`: why materialization is separate, how selected paths work, and why consumers do not need another evaluation;
 - `src/evaluation.nix`: why failures are atomic and retained, how valid `null` differs from unavailable `null`, why causal path hops are propagated, and why failure kinds are coarse/deterministic;
 - `src/options.nix`: why the selected Nixpkgs option-documentation projection and generic framework descriptor are used;
-- `lib/default.nix`: why an importable library entry point exists in addition to the top-level flake’s `.lib` output;
-- `lib/lock.nix` or its final equivalent: why node names and edge mappings—not coincidental revisions—define lock-graph identity.
+- `lib/default.nix`: why an importable library entry point exists in addition to the top-level flake’s `.lib` output.
 
 Do not repeat the entire architecture in every file. A scoped directory `README.md` is allowed only when durable rationale cannot be expressed naturally near the relevant binding; do not create one by default.
 
@@ -596,8 +581,7 @@ Nix_Schemas-Evaluator/
 │   ├── flake.nix                   # heavy test-matrix partition (isolated dependencies)
 │   └── flake.lock
 ├── lib/
-│   ├── default.nix                 # thin importable library wrapper
-│   └── lock.nix                    # small standard flake.lock helper
+│   └── default.nix                 # thin importable library wrapper
 ├── src/
 │   ├── evalFlake.nix               # flake-family adapter exposed through lib.flake
 │   ├── evaluation.nix              # shared schema evaluation helpers & error sentinels
@@ -630,7 +614,6 @@ The top-level `flake.nix` must remain strictly lightweight:
 - **Inputs**: Only pinned `nixpkgs` (for `lib`) and `flake-schemas` (for base schema definitions). It must **not** import NixOS, Home Manager, or Darwin at the root.
 - **Outputs**:
   - `lib.flake`: The target-bound constructor (`{ targetFlake }: { inventory, manifest, derivations }`).
-  - `lib.lock`: The pure `flake.lock` reader helper.
   - `formatter.<system>`: Configured treefmt / nixfmt.
 - Heavy framework dependencies (Home Manager, nix-darwin, nix-on-droid, etc.) are strictly quarantined in `checks/flake.nix` to prevent pulling hundreds of megabytes of inputs into consumer flakes.
 
@@ -640,8 +623,7 @@ Implementation proceeds in three distinct phases: Core & Builders first, Module 
 
 #### Phase A: Core evaluator, standard outputs, and derivation builder collection
 1. Add top-level `flake.nix` and importable `lib/default.nix`, exposing `lib.flake` and basic formatter;
-2. Add the small standard `lib.lock` helper for explicit `flake.lock` paths and tests for node/edge/follows identity;
-3. Refactor `src/evalFlake.nix` into the single target-bound constructor (`lib.flake { targetFlake }`);
+2. Refactor `src/evalFlake.nix` into the single target-bound constructor (`lib.flake { targetFlake }`);
 4. Extract `src/inventory.nix` and implement lazy, protocol-compliant `flake-schemas` inventory;
 5. Extract `src/evaluation.nix`, implement atomic failures with explicit `_type = "error"` sentinels and one-hop scalar `child` causal propagation, and add focused unit tests;
 6. Rename/expand `test/_fixtures/basic-flake` into `test/_fixtures/minimal-complete-flake` and update copied snapshots atomically;
@@ -668,7 +650,6 @@ Before any downstream consumer integration, validate:
 - `nix fmt` and the repository’s configured formatter/linter;
 - the copied baseline’s behavior is understood before refactoring;
 - importable `lib/default.nix` and top-level `.lib` produce the same contract;
-- `lib.lock` preserves node names, parent edge mappings, follows relationships, and distinguishes equal revisions under distinct graph identities;
 - one-expression target resolution shares `inventory` and `manifest` evaluation;
 - all deterministic atomic failure kinds and valid `null` cases;
 - atomic failure details occur once, while the owning node points to `children`, the materialized child container points to its immediate failed child, and the failed leaf points to its failed field;
@@ -694,7 +675,7 @@ Consumer integration is a hard gate. The author must review and accept every dec
 - Do not make exact Nix stderr a required manifest field.
 - Do not spawn `nix` recursively from Nix.
 - Do not add `__evaluation` or `__options` to flake-schemas’ upstream `.schemas`/`.exportedSchemas` protocol.
-- Do not create a core `lib.flake.inputs` API that duplicates `flake.lock`; use `lib.lock` only for explicit lock-file parsing convenience.
+- Do not create a core `lib.flake.inputs` or `lib.lock` API; input dependency metadata is handled authoritatively by `nix flake metadata --json`.
 - Do not preserve the old `flake_info.nix` output for backwards compatibility.
 - Do not redesign nixos-search’s Elasticsearch/frontend schema in this repository.
 - Do not integrate or patch Nix #8892 yet; only explore it after the requested module-option work.
