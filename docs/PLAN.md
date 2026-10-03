@@ -341,6 +341,8 @@ custom = {
    }
    ```
    - *Selected*: Follows standard Nixpkgs conventions (`_type = "option"`, `_type = "derivation"`, `_type = "override"`). Nixpkgs itself uses this exact pattern in `lib/types.nix` (`mergeTypes` returns `{ _type = "merge-error"; error = "..."; }` created via `setType`).
+   - Prior art in [Nixpkgs PR #553364](https://github.com/NixOS/nixpkgs/pull/553364) uses `_type = "option"` on leaf documentation nodes to differentiate options from intermediate attrset containers (`node ? _type`).
+   - Prior art in Clan ([`clan-core/lib/jsonschema`](https://git.clan.lol/clan/clan-core/src/branch/main/lib/jsonschema)): Clan generates pure JSON Schema without a safe partial-failure mode, throwing eagerly on error. For safe partial evaluation, `_type = "error"` provides the native discriminator without inventing foreign envelope keys.
    - Consumers can check `(leaf._type or null) == "error"` or `lib.isType "error" leaf`.
    - Successful values and legitimate `null` values retain their exact native shapes without unwrapping overhead. Only failed leaves are replaced by this self-describing typed error object.
 
