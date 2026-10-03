@@ -19,8 +19,6 @@
   outputs =
     inputs@{
       flake-parts,
-      evaluator,
-      nixpkgs,
       ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -32,10 +30,10 @@
       ];
 
       perSystem =
-        { pkgs, system, ... }:
+        { pkgs, ... }:
         let
           evalLib = import "${inputs.evaluator}/lib" {
-            nixpkgs = inputs.nixpkgs;
+            inherit (inputs) nixpkgs;
             inherit (inputs.evaluator.inputs) flake-schemas;
           };
         in
@@ -44,11 +42,9 @@
             matrix-nixos =
               let
                 target = {
-                  nixosModules.test =
-                    { ... }:
-                    {
-                      options.myService.enable = inputs.nixpkgs.lib.mkEnableOption "test service";
-                    };
+                  nixosModules.test = _: {
+                    options.myService.enable = inputs.nixpkgs.lib.mkEnableOption "test service";
+                  };
                 };
                 manifest = (evalLib.flake { targetFlake = target; }).manifest { options = true; };
               in
@@ -58,11 +54,9 @@
             matrix-home-manager =
               let
                 target = {
-                  homeModules.test =
-                    { ... }:
-                    {
-                      options.programs.myTool.enable = inputs.nixpkgs.lib.mkEnableOption "test tool";
-                    };
+                  homeModules.test = _: {
+                    options.programs.myTool.enable = inputs.nixpkgs.lib.mkEnableOption "test tool";
+                  };
                 };
                 manifest = (evalLib.flake { targetFlake = target; }).manifest { options = true; };
               in
@@ -72,11 +66,9 @@
             matrix-darwin =
               let
                 target = {
-                  darwinModules.test =
-                    { ... }:
-                    {
-                      options.services.myDaemon.enable = inputs.nixpkgs.lib.mkEnableOption "test daemon";
-                    };
+                  darwinModules.test = _: {
+                    options.services.myDaemon.enable = inputs.nixpkgs.lib.mkEnableOption "test daemon";
+                  };
                 };
                 manifest = (evalLib.flake { targetFlake = target; }).manifest { options = true; };
               in
