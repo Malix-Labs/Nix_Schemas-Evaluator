@@ -1,6 +1,7 @@
 {
   nixpkgs ? (import <nixpkgs> { }),
   flake-schemas ? (builtins.getFlake "github:DeterminateSystems/flake-schemas"),
+  optionToDoc ? null,
 }:
 /**
   Nix Schemas Evaluator library entry point.
@@ -14,7 +15,7 @@
 */
 let
   evalFlakeModule = import ../src/evalFlake.nix {
-    inherit nixpkgs flake-schemas;
+    inherit nixpkgs flake-schemas optionToDoc;
   };
 in
 {

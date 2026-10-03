@@ -77,37 +77,45 @@ let
   };
 
   tests = {
-    # 1. NixOS module options are projected as nested attribute sets with _type = "option"
+    # 1. NixOS module options are projected as JSON Schema Draft 2020-12
     testModuleOptionStructure = {
       expr = {
         hasOptions = manifestWithOptions.nixosModules.default ? __options;
-        optType = manifestWithOptions.nixosModules.default.__options.testOpt._type;
-        optDesc = manifestWithOptions.nixosModules.default.__options.testOpt.description;
-        optDefault = manifestWithOptions.nixosModules.default.__options.testOpt.default.text;
+        hasSchema = manifestWithOptions.nixosModules.default.__options ? "$schema";
+        rootType = manifestWithOptions.nixosModules.default.__options.type;
+        optType = manifestWithOptions.nixosModules.default.__options.properties.testOpt.type;
+        optNixType = manifestWithOptions.nixosModules.default.__options.properties.testOpt.nixType;
+        optDesc = manifestWithOptions.nixosModules.default.__options.properties.testOpt.description;
+        optDefault = manifestWithOptions.nixosModules.default.__options.properties.testOpt.default;
       };
       expected = {
         hasOptions = true;
-        optType = "option";
+        hasSchema = true;
+        rootType = "object";
+        optType = "string";
+        optNixType = "string";
         optDesc = "Test option";
-        optDefault = "\"val\"";
+        optDefault = "val";
       };
     };
 
-    # 2. Submodule options are nested under "*"
-    testSubmoduleOptionsNestedUnderWildcard = {
+    # 2. Submodule options are nested under properties.<name>.properties
+    testSubmoduleOptionsNestedUnderProperties = {
       expr = {
         hasOptions = submoduleManifest.nixosModules.submoduleTest ? __options;
-        serverOpt = submoduleManifest.nixosModules.submoduleTest.__options.server._type;
-        hasSubmodule = submoduleManifest.nixosModules.submoduleTest.__options.server ? "*";
-        portOpt = submoduleManifest.nixosModules.submoduleTest.__options.server."*".port._type;
-        portDefault = submoduleManifest.nixosModules.submoduleTest.__options.server."*".port.default.text;
+        serverType = submoduleManifest.nixosModules.submoduleTest.__options.properties.server.type;
+        serverNixType = submoduleManifest.nixosModules.submoduleTest.__options.properties.server.nixType;
+        portType =
+          submoduleManifest.nixosModules.submoduleTest.__options.properties.server.properties.port.type;
+        portDefault =
+          submoduleManifest.nixosModules.submoduleTest.__options.properties.server.properties.port.default;
       };
       expected = {
         hasOptions = true;
-        serverOpt = "option";
-        hasSubmodule = true;
-        portOpt = "option";
-        portDefault = "8080";
+        serverType = "object";
+        serverNixType = "submodule";
+        portType = "integer";
+        portDefault = 8080;
       };
     };
 

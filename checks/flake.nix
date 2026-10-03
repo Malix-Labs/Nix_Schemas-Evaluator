@@ -35,6 +35,9 @@
           evalLib = import "${inputs.evaluator}/lib" {
             inherit (inputs) nixpkgs;
             inherit (inputs.evaluator.inputs) flake-schemas;
+            optionToDoc =
+              inputs.nixpkgs.lib.options.optionToDoc or (import "${inputs.evaluator.inputs.nixpkgs-pr553364}/lib")
+              .options.optionToDoc;
           };
         in
         {
@@ -48,7 +51,9 @@
                 };
                 manifest = (evalLib.flake { targetFlake = target; }).manifest { options = true; };
               in
-              assert manifest.nixosModules.test.__options.myService.enable._type == "option";
+              assert manifest.nixosModules.test.__options ? "$schema";
+              assert
+                manifest.nixosModules.test.__options.properties.myService.properties.enable.type == "boolean";
               pkgs.runCommand "check-matrix-nixos" { } "touch $out";
 
             matrix-home-manager =
@@ -60,7 +65,10 @@
                 };
                 manifest = (evalLib.flake { targetFlake = target; }).manifest { options = true; };
               in
-              assert manifest.homeModules.test.__options.programs.myTool.enable._type == "option";
+              assert manifest.homeModules.test.__options ? "$schema";
+              assert
+                manifest.homeModules.test.__options.properties.programs.properties.myTool.properties.enable.type
+                == "boolean";
               pkgs.runCommand "check-matrix-home-manager" { } "touch $out";
 
             matrix-darwin =
@@ -72,7 +80,10 @@
                 };
                 manifest = (evalLib.flake { targetFlake = target; }).manifest { options = true; };
               in
-              assert manifest.darwinModules.test.__options.services.myDaemon.enable._type == "option";
+              assert manifest.darwinModules.test.__options ? "$schema";
+              assert
+                manifest.darwinModules.test.__options.properties.services.properties.myDaemon.properties.enable.type
+                == "boolean";
               pkgs.runCommand "check-matrix-darwin" { } "touch $out";
           };
         };

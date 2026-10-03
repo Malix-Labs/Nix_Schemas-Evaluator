@@ -32,100 +32,12 @@ let
     addEvaluation
     ;
 
-  # Documentation item projection helper conforming to nixpkgs PR #553364
-  optionToDocItem =
-    opt:
-    let
-      name = lib.showOption (opt.loc or [ ]);
-      visible = opt.visible or true;
-    in
-    {
-      description = opt.description or null;
-      declarations = lib.filter (x: x != (lib.modules.unknownModule or "unknown")) (
-        opt.declarations or [ ]
-      );
-      internal = opt.internal or false;
-      visible = if lib.isBool visible then visible else visible == "shallow";
-      readOnly = opt.readOnly or false;
-      type = opt.type.description or "unspecified";
-    }
-    // lib.optionalAttrs (opt ? example) {
-      example = lib.addErrorContext "while evaluating the example of option `${name}`" (
-        lib.options.renderOptionValue opt.example
-      );
-    }
-    // lib.optionalAttrs (opt ? defaultText || opt ? default) {
-      default =
-        lib.addErrorContext
-          "while evaluating the ${
-            if opt ? defaultText then "defaultText" else "default value"
-          } of option `${name}`"
-          (
-            if opt ? defaultText then
-              lib.options.renderOptionValue opt.defaultText
-            else
-              lib.options.renderOptionValue opt.default
-          );
-    };
-
-  # Traversal helper conforming to nixpkgs PR #553364 foldOptionSet
-  foldOptionSet =
-    {
-      onOption,
-      onAttrSet,
-      empty ? { },
-      ...
-    }:
-    let
-      recurse =
-        tree:
-        if lib.isOption tree then
-          let
-            v = tree.visible or true;
-            subVisible = if lib.isBool v then v else v == "transparent";
-            ss = tree.type.getSubOptions tree.loc;
-            subDocs = if subVisible && ss != { } then recurse ss else empty;
-          in
-          onOption (optionToDocItem tree) subDocs tree
-        else if lib.isAttrs tree then
-          onAttrSet recurse tree
-        else
-          empty;
-    in
-    recurse;
-
-  # Nested option projection conforming to lib.options.optionToDoc
-  defaultOptionToDoc =
-    options:
-    let
-      docTree = foldOptionSet {
-        onOption =
-          doc: subDocs: _opt:
-          {
-            _type = "option";
-          }
-          // doc
-          // lib.optionalAttrs (subDocs != { }) {
-            "*" = subDocs;
-          };
-        onAttrSet = recurse: set: lib.mapAttrs (_: recurse) set;
-        empty = { };
-      } options;
-    in
-    docTree;
-
   optionToDoc =
     if customOptionToDoc != null then
       customOptionToDoc
-    else if lib.options ? optionToDoc then
-      # If nixpkgs already has optionToDoc
-      opt:
-      let
-        res = lib.options.optionToDoc opt;
-      in
-      res.options or res
     else
-      defaultOptionToDoc;
+      lib.options.optionToDoc
+        or (throw "lib.options.optionToDoc is not available in nixpkgs and no customOptionToDoc was provided.");
 
   # Framework descriptors specifying module evaluation recipes
   frameworkDescriptors = {
@@ -170,6 +82,45 @@ let
     homeManagerModules = {
       name = "Home Manager";
       eval = frameworkDescriptors.homeModules.eval;
+    };
+
+    hjemModules = {
+      name = "hjem";
+      eval =
+        module:
+        let
+          evaled = lib.evalModules {
+            class = "hjem";
+            modules = [ module ];
+          };
+        in
+        evaled.options;
+    };
+
+    nixOnDroidModules = {
+      name = "nix-on-droid";
+      eval =
+        module:
+        let
+          evaled = lib.evalModules {
+            class = "nix-on-droid";
+            modules = [ module ];
+          };
+        in
+        evaled.options;
+    };
+
+    nixbsdModules = {
+      name = "nixbsd";
+      eval =
+        module:
+        let
+          evaled = lib.evalModules {
+            class = "nixbsd";
+            modules = [ module ];
+          };
+        in
+        evaled.options;
     };
   };
 

@@ -85,12 +85,30 @@
         "url": "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz"
       }
     },
+    "nixpkgs-pr553364": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790495670,
+        "narHash": "sha256-prnJYj+sWakCQOIBlBf+fxMTXoTEGhkg3wyvPAY1b3U=",
+        "owner": "Malix-Labs",
+        "repo": "nixpkgs",
+        "rev": "9d1bba5b1462166afd543d7c92a865889559c086",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Malix-Labs",
+        "ref": "optionAttrSetToDocTree",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flake-parts": "flake-parts",
         "flake-schemas": "flake-schemas",
         "git-hooks-nix": "git-hooks-nix",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-pr553364": "nixpkgs-pr553364",
         "systems": "systems"
       }
     },

@@ -1,6 +1,7 @@
 {
   nixpkgs ? (import <nixpkgs> { }),
   flake-schemas ? (builtins.getFlake "github:DeterminateSystems/flake-schemas"),
+  optionToDoc ? null,
   # Optional direct call compatibility: if targetFlake is provided directly in first argument set
   targetFlake ? null,
 }:
@@ -22,7 +23,10 @@ let
   inherit (nixpkgs) lib;
 
   evaluation = import ./evaluation.nix { inherit lib; };
-  optionsEngine = import ./options.nix { inherit lib evaluation; };
+  optionsEngine = import ./options.nix {
+    inherit lib evaluation;
+    customOptionToDoc = optionToDoc;
+  };
   inventoryAdapter = import ./inventory.nix { inherit lib; };
   manifestAdapter = import ./manifest.nix {
     inherit lib evaluation optionsEngine;
