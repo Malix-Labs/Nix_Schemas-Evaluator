@@ -30,31 +30,62 @@ The new repository’s own paths, names, and public contract are defined below.
 The public library contract is:
 
 ```nix
-lib.flake = {
-  inventory = { targetFlake = ...; };
-  manifest = { targetFlake = ...; paths ? null; };
-};
-```
-
-`targetFlake` accepts either a flake reference string or an already resolved flake attrset. A string is resolved once by the shared evaluator constructor; an attrset is used as supplied. `lib.flake.eval` is also exposed as the sharing-oriented constructor:
-
-```nix
-lib.flake.eval { targetFlake = ...; }
-# returns
+lib.flake = { targetFlake }:
 {
-  inventory = ...;
-  manifest = { paths ? null; }:
+  # 1. Lazy schema descriptor tree (flake-schemas protocol compliant)
+  inventory = {
+    safe ? true;
+  }: ...;
+
+  # 2. Materialized JSON-serializable manifest (for search, indexers, IDEs)
+  manifest = {
+    paths ? null;     # null | listOf attrPath, where attrPath = [String]
+    options ? true;    # boolean
+    safe ? true;       # boolean
+  }: ...;
+
+  # 3. Raw derivation collector (for builders: nix-fast-build, nix-eval-jobs, Hydra, CI)
+  derivations = {
+    paths ? null;     # null | listOf attrPath, where attrPath = [String]
+    safe ? true;       # boolean
+  }: ...;
 }
 ```
 
-The convenience functions are projections over the same constructor implementation. A caller requesting both views in one Nix expression uses `lib.flake.eval`, so the target is resolved once and both views share one lazy graph. Separate calls to separate functions are separate Nix expressions and cannot share an evaluator heap; this is documented rather than hidden.
+### 1.1 Constructor semantics
 
-- `lib.flake.inventory` is lazy, Nix-native, and flake-schemas-shaped.
-- `lib.flake.manifest` is a materialized output projection for external consumers.
-- `manifest` never silently requires a second Nix evaluation for information within its output contract.
-- `inventory` and `manifest` are not tailored to Rust, Elasticsearch, the web frontend, MCPs, or any other consumer.
+`lib.flake` is a target-bound constructor. `targetFlake` accepts either a flake reference string (e.g. `"github:NixOS/nixpkgs"`) or an already resolved flake attribute set. A string is resolved once by the constructor; an attribute set is used as supplied.
 
-If packaged outputs are added later, `pkgs.flake.inventory` and `pkgs.flake.manifest` must have the same semantic contracts and call the same library implementation. Packaging may add transport behavior but may not create a second evaluator.
+This target-bound design replaces earlier proposals for a separate `lib.flake.eval` helper:
+- Resolving `targetFlake` once ensures that `inventory`, `manifest`, and `derivations` share the same resolved flake, input mappings, and lazy Nix heap within one expression without re-evaluation.
+- Eliminates passing `targetFlake` redundantly to every sub-call.
+- One-liner queries chain naturally: `(lib.flake { inherit targetFlake; }).manifest { ... }`.
+
+### 1.2 Projection views
+
+1. `inventory`: Pure, lazy, Nix-native descriptive tree adhering strictly to the DeterminateSystems `flake-schemas` protocol. It provides output discovery (`children`, `what`, `derivationAttrPath`, `forSystems`) suitable for `nix flake show`-style tools without forcing or materializing arbitrary payload values.
+2. `manifest`: Materialized output projection for external data consumers (such as `nixos-search`, Elasticsearch indexers, web frontends, and IDEs). Materializes package metadata, app execution targets, and module option trees into JSON-serializable attribute sets with deterministic error annotations.
+3. `derivations`: Nix-native derivation collector for builders (`nix-fast-build`, `nix-eval-jobs`, `nix build`, Hydra, and CI workflows replacing ad-hoc build actions). Unlike `manifest`, it preserves raw Nix derivation thunks (`type = "derivation"`, `drvPath`, `outPath`) so they remain directly buildable.
+
+### 1.3 Parameters and defaults
+
+- `safe` (boolean, default: `true` for all views):
+  - In `safe = true` mode, caught evaluation throws, missing attributes, or broken schema items are intercepted without aborting the entire evaluation graph.
+  - In `safe = false` mode, evaluation is strict: throws propagate immediately with no sidecars or sentinels, useful for CI assertions.
+- `options` (boolean, default: `true` for `manifest`):
+  - In `options = true` mode, evaluated module option documentation trees (`__options`) are attached to applicable module nodes (`nixosModules`, `darwinModules`, `homeManagerModules`).
+  - Because Nix is lazy, `options = true` incurs zero overhead when selecting non-module paths.
+  - `inventory` does not accept an `options` parameter because evaluated options are not part of the `flake-schemas` inventory specification.
+- `paths` (`null | listOf attrPath`, default: `null`):
+  - `null`: materializes the complete output tree.
+  - `[]`: selects nothing.
+  - Non-null values specify a list of attribute paths to materialize.
+  - Each `attrPath` is typed strictly as a list of strings (`[String]`), following the standard Nix convention used by [`lib.attrsets.attrByPath`](https://github.com/NixOS/nixpkgs/blob/master/lib/attrsets.nix) and RFC 145:
+    ```nix
+    paths = [ [ "packages" "x86_64-linux" "hello" ] ];
+    ```
+  - Dotted strings (e.g. `"packages.x86_64-linux.hello"`) are strictly **not supported** in public path selectors, because Nix attribute names can contain literal dots.
+  - Non-negative integer indices are strictly internal for error tracking inside lists; they are not accepted in public `paths`.
 
 ## 2. Input metadata: lock-file helper versus Nix CLI metadata
 
@@ -173,84 +204,134 @@ This section is normative. The implementer must follow the selected choice in ea
 
 Neither is a runtime dependency of `lib.flake`. The code remains explicit-argument, composable, and inspectable by both tools. Focused test expressions are available for editor inspection without forcing the heavy fixture matrix. A future editor integration must query this library or a shared packaged wrapper rather than duplicate semantics.
 
-### 5.3 `inventory` and `manifest`
+### 5.3 Architectural boundaries: `flake-schemas`, `inventory`, `manifest`, and `derivations`
 
-**Alternative A — one eager output.** Rejected: it forces all values, breaks Nix-first laziness, and makes large module frameworks expensive for callers needing one path.
+To keep the architecture coherent, we must be precise about what upstream `flake-schemas` does and does not define:
 
-**Alternative B — only lazy inventory.** Rejected: external consumers would need additional Nix evaluation to materialize derivations, app values, options, and failures.
+#### 5.3.1 What `flake-schemas` is
+The DeterminateSystems `flake-schemas` specification is a tool protocol designed primarily for `nix flake show` and `nix flake check`. It standardizes schema declarations (`version`, `doc`, `inventory`, `evalChecks`) so that the Nix CLI can discover and navigate output hierarchies without hard-coding knowledge of every flake convention. An `inventory` function in this protocol returns a descriptive tree of nodes:
+- Each non-leaf node has a `children` attribute set.
+- Each node carries descriptive metadata (`what`, `shortDescription`, `derivationAttrPath`, `forSystems`, `isLegacy`).
 
-**Alternative C — two views with one shared evaluator graph (selected):** `inventory` remains lazy/schema-native; `manifest` is a single function with `paths ? null`. `null` requests the complete output tree; a string requests one logical path; a list requests one shared-prefix batch. Full, single, and batch modes use one selector/materializer implementation.
+#### 5.3.2 What `flake-schemas` does NOT do
+`flake-schemas` intentionally stops at description. It does not define:
+- Materialized JSON output for external search engines or web frontends.
+- Extraction of evaluated NixOS, Darwin, or Home Manager module options.
+- A wire format or error envelope for partial-evaluation failures.
+- A collection mechanism for unstripped buildable derivations in CI pipelines.
 
-### 5.4 Failure representation and causal path propagation
+#### 5.3.3 Architectural boundary and open decision on `inventory` scope
 
-**Alternative A — omit failed fields.** Rejected: omission hides whether a field was absent or attempted and failed.
+The target-bound constructor exposes three views, with an open architectural decision regarding how strictly `inventory` couples to upstream `flake-schemas`:
 
-**Alternative B — wrap every value as `{ value, evaluation }`.** Rejected: it changes ordinary value types and makes every consumer unwrap every field.
+1. **`inventory` (Open Decision Point: Strictness vs. Extension)**:
+   - **Approach A (Strict drop-in compliance)**: Conforms strictly to DeterminateSystems `flake-schemas`. Returns only the descriptive `children` tree and standard metadata (`what`, `shortDescription`, `derivationAttrPath`, `forSystems`). Evaluator-specific metadata, values, and module options are excluded, ensuring drop-in compatibility with `nix flake show`-like tooling.
+   - **Approach B (Enriched descriptive tree)**: Reuses `children` and standard schema fields, but allows evaluator-specific diagnostic metadata or richer descriptive extensions directly in `inventory`.
+   - **Approach C (Dual exposure)**: Exposes both a strictly compliant upstream inventory and a separate diagnostic inventory view.
 
-**Alternative C — detailed failure only at the leaf plus ancestor status-only summaries.** Rejected: an ancestor gives no direct route to its cause; a consumer must scan descendants to find it.
+2. **`manifest` (Enriched data projection)**:
+   A project-owned, JSON-serializable projection designed for external consumers (`nixos-search`, IDEs, indexers). It materializes package metadata, app execution details, and module options into a structured tree with deterministic partial-failure annotations.
 
-**Alternative D — duplicate the complete final path at every ancestor.** Rejected: it duplicates information already represented by the chain and makes each ancestor pretend to know the transitive leaf cause.
+3. **`derivations` (Raw builder collection)**:
+   A Nix-native projection designed for CI builders (`nix-fast-build`, `nix-eval-jobs`, `nix build`, Hydra). It collects raw derivation objects (`type = "derivation"`, `drvPath`, `outPath`) directly from the schema nodes without stripping derivation internals or converting them to plain JSON records.
 
-**Alternative E — one scalar child link at every non-passing materialized node (selected).** A failed leaf is represented by `null` and an atomic failure record. Every non-passing materialized parent receives a record whose `child` field names only its immediate failed child or field. `child` is one string attrset key or one integer list index; it is never a list. A consumer follows `child` links from node to node until it reaches the atomic failure. There is no separate `trace` field, and `path` remains reserved for full logical manifest-selection paths.
+---
 
-This mirrors the useful part of Nix’s own diagnostic frames. A direct probe with Nix 3.22.0 reports a nested throw as:
+### 5.4 Open Decision Point: Failure representation and programming language semantics
 
-```text
-while evaluating the attribute 'children.bad.value'
-while calling the 'throw' builtin
-error: leaf boom
+In programming language theory, handling partial evaluation across a recursive tree exposes a fundamental semantic distinction between:
+- **Absence** (`Option<T> = None | Some(T)`): A field is not defined or has an intentional `null` value.
+- **Recoverable Failure** (`Result<T, E> = Ok(T) | Err(E)`): A field was requested or required, but evaluating it produced an exception (e.g. `throw`, `abort`, missing attribute, or type error).
+
+The representation of failure in safe evaluation mode remains an **open architectural decision**. Below are the candidate models, their concrete wire shapes, and their trade-offs:
+
+#### 5.4.1 Candidate failure representations compared
+
+Consider evaluating a flake output with three items:
+```nix
+custom = {
+  good = { value = 1; };
+  nil  = { value = null; };         # legitimate Nix null
+  bad  = { value = throw "boom"; }; # evaluation failure
+};
 ```
 
-The first frame identifies the expression path, and the later frame identifies the atomic operation. The manifest represents that relationship as local hops instead of copying the full final path into every record.
+1. **Candidate 1: `null` plus parent sidecar (`__evaluation`)**
+   ```json
+   {
+     "good": { "value": 1 },
+     "nil":  { "value": null },
+     "bad":  {
+       "value": null,
+       "__evaluation": { "status": "failing", "failures": [{ "child": "value", "kind": "evaluation_failure" }] }
+     }
+   }
+   ```
+   - *Pros*: Preserves standard data types for successful values; no special sentinels at the value position.
+   - *Cons*: Introduces semantic ambiguity: `bad.value` is indistinguishable from `nil.value`. A consumer seeing `null` is forced to inspect parent metadata sidecars on every access just to verify whether the field succeeded as `null` or failed.
 
-Conceptually:
+2. **Candidate 2: Field omission / non-existence plus ancestor sidecar**
+   ```json
+   {
+     "good": { "value": 1 },
+     "nil":  { "value": null },
+     "bad":  {
+       "__evaluation": { "status": "failing", "failures": [{ "child": "value", "kind": "evaluation_failure" }] }
+     }
+   }
+   ```
+   - *Pros*: No reserved failure sentinel at the leaf; valid attributes remain completely untouched.
+   - *Cons*: `bad ? value` returns `false`. This hides whether `value` was omitted by schema definition or attempted and failed, scoping failure awareness entirely to parent sidecars.
 
-```json
-{
-  "children": {
-    "good": { "value": 1 },
-    "bad": {
-      "value": null,
-      "__evaluation": {
-        "status": "failing",
-        "failures": [
-          { "child": "value", "kind": "evaluation_failure" }
-        ]
-      }
-    },
-    "__evaluation": {
-      "status": "partial",
-      "failures": [
-        {
-          "child": "bad",
-          "kind": "child_evaluation_failure"
-        }
-      ]
-    }
-  },
-  "__evaluation": {
-    "status": "partial",
-    "failures": [
-      {
-        "child": "children",
-        "kind": "child_evaluation_failure"
-      }
-    ]
-  }
-}
-```
+3. **Candidate 3: Per-value `Result` sum-type wrapper**
+   ```json
+   {
+     "good": { "value": { "status": "ok", "value": 1 } },
+     "nil":  { "value": { "status": "ok", "value": null } },
+     "bad":  { "value": { "status": "error", "error": { "kind": "evaluation_failure" } } }
+   }
+   ```
+   - *Pros*: Formally pure algebraic sum type (`Result<T, E>`), eliminating any ambiguity between presence, absence, and failure.
+   - *Cons*: Completely alters ordinary value shapes; every consumer must unwrap every successful field.
 
-Here the root sidecar has `child = "children"`; the `children` container sidecar has `child = "bad"`; the `children.bad` sidecar has `child = "value"`; and the leaf record identifies the atomic failure. This is deliberate: `children` is a materialized attrset in the manifest and needs its own sidecar to make the causal chain locally navigable, even though its keys are schema children rather than an independent flake-schemas node. `__evaluation` is reserved metadata, not a child, and consumers must exclude it when iterating schema children. If the `children` map itself throws before any child exists, the owning node records a direct atomic failure at `child = "children"`, and there is no child-container sidecar to traverse.
+4. **Candidate 4: Root/Sidecar error dictionary (GraphQL style `{ data, errors }`)**
+   ```json
+   {
+     "data": { "good": { "value": 1 }, "nil": { "value": null }, "bad": { "value": null } },
+     "errors": { "custom.bad.value": { "kind": "evaluation_failure" } }
+   }
+   ```
+   - *Pros*: Leaves data tree free of failure sentinels.
+   - *Cons*: Requires client-side path index lookups, string concatenation, and decouples errors from the data tree.
 
-The same rule applies to any materialized attrset: if it contains failed descendants, it may carry a node-local `__evaluation` sidecar; the sidecar is placed in the attrset being reported, not in a separate namespace. This gives every non-passing materialized boundary one scalar `child` link without pretending that the container’s derived propagation kind is the atomic cause. `path` remains available for a complete logical path in manifest selection or an atomic failure’s own field path; it is not overloaded for a one-hop relation.
+5. **Candidate 5: Sparse tagged sentinel at failed leaves**
+   ```json
+   {
+     "good": { "value": 1 },
+     "nil":  { "value": null },
+     "bad":  {
+       "value": {
+         "__error": {
+           "kind": "evaluation_failure"
+         }
+       },
+       "__evaluation": {
+         "status": "failing",
+         "failures": [
+           { "child": "value", "kind": "cascade" }
+         ]
+       }
+     }
+   }
+   ```
+   - *Pros*: Successful values and valid `null` retain their exact ordinary shape with zero wrapping overhead. Unavailable values are self-describing at the leaf (`val.__error`), while parent containers retain `__evaluation` for aggregate status and scalar causal links.
+   - *Cons*: Reserves the `__error` namespace and replaces a scalar with an object only at failed leaves.
 
-This deliberately duplicates **one-hop child/status records**, not complete final paths or error payloads. The tradeoff is:
-
-- good: a consumer inspecting any non-passing node has a direct path to the next diagnostic node and never scans unrelated descendants;
-- good: each parent records only what it knows—that its immediate child failed—while the leaf remains the single authoritative atomic cause;
-- cost: one small record per semantic level increases manifest size and parsing/storage/RAM/CPU linearly with failure depth;
-- mitigation: keep paths relative, do not duplicate messages, and test deeply nested failures for linear growth;
-- safety: propagation records are derived links, not independent causes, so consumers should display the leaf kind as the actual reason.
+#### 5.4.2 Causal child propagation
+Regardless of the leaf failure encoding chosen, non-passing parent containers in `safe = true` mode maintain causal navigation:
+- Each non-passing parent container includes an `__evaluation` sidecar.
+- The `failures` list contains one-hop records pointing to the immediate non-passing child (`child = "fieldName"`).
+- Propagation records use `kind = "cascade"`, allowing a consumer inspecting an ancestor to navigate directly to the failed leaf without scanning unrelated branches.
 
 Statuses are deterministic: all passing → `passing`; mixed → `partial`; all evaluated children failing → `failing`; empty successful node → `passing`; node throw → `failing`.
 
@@ -342,19 +423,32 @@ A whole option evaluation failure gives `__options = null` and a module-node dia
 
 **Optional parsing:** allowed later for source-oriented docs, source locations, and unevaluable repositories. It must not override or merge guessed values/status into the canonical manifest, because doing so would make provenance and correctness ambiguous.
 
-### 5.8 Derivation projection
+### 5.8 Derivation projection (`manifest`) versus derivation collection (`derivations`)
 
-**Alternative A — recursively pass through every derivation attribute.** Rejected: derivations contain implementation details, builders, arguments, passthru internals, functions, possible recursive structures, and large unstable data.
+There are two fundamentally different consumer needs regarding flake derivations:
 
-**Alternative B — silently filter whatever happens to be unsafe.** Rejected: it makes the manifest unpredictable and hides missing information.
+#### 5.8.1 `manifest` derivation projection (JSON consumers)
+For search engines, indexers, and web frontends, raw derivations cannot be exported directly because they contain implementation details, builders, functions, cyclic references, and non-serializable strings with store context.
 
-**Alternative C — explicit stable package projection (selected):** project exactly:
+- **Explicit package projection (Selected for `manifest`)**: Project exactly:
+  ```text
+  name, pname, version, system, outputs, outputName, meta
+  ```
+- Recursively materialize `meta` with the shared safe evaluator.
+- Unavailable or failing fields receive the explicit `__error` sentinel, accompanied by scalar `child` causal links in parent containers.
+- This produces a stable, deterministic, JSON-serializable package record.
 
-```text
-name, pname, version, system, outputs, outputName, meta
-```
+#### 5.8.2 `derivations` collection (Builders, `nix-fast-build`, `nix-eval-jobs`, and CI)
+A JSON manifest cannot be passed to `nix build`, `nix-fast-build`, `nix-eval-jobs`, or Hydra because the Nix derivation machinery requires the raw derivation thunk (`type = "derivation"`, `drvPath`, and output paths).
 
-Recursively materialize `meta` with the shared safe evaluator and retain failed selected fields as `null` plus `__evaluation`. This is a deliberate package boundary because raw derivation internals are not a stable external contract. Adding fields later is an explicit contract change with tests. Preserve all other non-derivation schema attrsets by the generic materializer unless their schema explicitly defines another projection.
+This project is the spiritual successor to [`srid/devour-flake`](https://github.com/srid/devour-flake/). `devour-flake` existed specifically to solve the CI problem: "how do I collect every buildable derivation in a flake into a single evaluation graph for CI builds?" The previous plan missed this builder use-case by treating derivations exclusively as JSON data.
+
+The `derivations` projection solves this directly at the Nix layer:
+- **Schema-guided traversal**: Inspects schema inventory nodes that declare `derivationAttrPath` (or leaves satisfying `lib.isDerivation`).
+- **Preserves derivation thunks**: Does not strip derivation internals or coerce attributes into JSON records. Retains raw `type = "derivation"` objects.
+- **Evaluation vs. build separation**: Collecting derivations is strictly an evaluation-time operation. It dereferences the derivation graph without triggering builds, allowing external build schedulers (`nix-fast-build`, Hydra, or GitHub Actions runners) to manage compilation, concurrency, and caching.
+- **Fault-tolerant collection (`safe = true`)**: In safe mode, derivations that throw during attribute evaluation (e.g. unfree assertions, broken platform constraints) are intercepted so one broken package does not prevent building the rest of the flake.
+- **Filtering**: Allows filtering by system (`currentSystem` or declared `forSystems`), and optionally excluding `meta.broken` or unfree packages.
 
 ### 5.9 Standard transformations
 
@@ -409,9 +503,9 @@ custom = {
 
 The tests prove:
 
-1. `manifest { paths = [ "custom.children.good" ]; }` returns `good`, does not force/return `bad`, and reports no failure from the unrequested sibling;
-2. `manifest { paths = [ "custom.children.bad" ]; }` returns `bad.value = null` with one atomic `evaluation_failure` at the smallest owner;
-3. `manifest { paths = [ "custom.children" ]; }` returns both children, gives the requested parent `status = "partial"`, and carries `child = "children"` to the materialized children attrset; that sidecar carries `child = "bad"` while the atomic reason remains only on `bad`; `__evaluation` is excluded when iterating child names;
+1. `manifest { paths = [ [ "custom" "children" "good" ] ]; }` returns `good`, does not force/return `bad`, and reports no failure from the unrequested sibling;
+2. `manifest { paths = [ [ "custom" "children" "bad" ] ]; }` returns `bad.value = { __error = { kind = "evaluation_failure"; }; }` with scalar causal links in parents;
+3. `manifest { paths = [ [ "custom" "children" ] ]; }` returns both children, gives the requested parent `status = "partial"`, and carries `child = "children"` to the materialized children attrset; that sidecar carries `child = "bad"` while the atomic reason remains only on `bad`; `__evaluation` is excluded when iterating child names;
 4. an omitted unrelated branch is not confused with a failed child;
 5. an invalid requested path gets deterministic `missing_attribute` data rather than silently returning an empty attrset;
 6. a list of overlapping paths evaluates shared prefixes once and produces the same records as the equivalent full request for those units;
@@ -476,58 +570,76 @@ The repository already has the copied `src/evalFlake.nix` and `test/` baseline. 
 
 ```text
 Nix_Schemas-Evaluator/
-├── flake.nix
+├── flake.nix                       # top-level lightweight flake entrypoint
 ├── flake.lock
 ├── checks/
-│   ├── flake.nix
+│   ├── flake.nix                   # heavy test-matrix partition (isolated dependencies)
 │   └── flake.lock
 ├── lib/
-│   ├── default.nix                 # thin importable wrapper
+│   ├── default.nix                 # thin importable library wrapper
 │   └── lock.nix                    # small standard flake.lock helper
 ├── src/
-│   ├── evalFlake.nix               # flake-family adapter exposed through lib.flake.*
-│   ├── evaluation.nix              # shared schema evaluation helpers
-│   ├── inventory.nix                # flake inventory adapter used by lib.flake.inventory
-│   ├── manifest.nix                 # shared materialization/selection helpers used by lib.flake.manifest
-│   └── options.nix                  # module descriptor and option projection helpers
+│   ├── evalFlake.nix               # flake-family adapter exposed through lib.flake
+│   ├── evaluation.nix              # shared schema evaluation helpers & error sentinels
+│   ├── inventory.nix               # flake inventory adapter used by lib.flake.inventory
+│   ├── manifest.nix                # shared materialization/selection helpers used by lib.flake.manifest
+│   ├── derivations.nix             # raw derivation collector used by lib.flake.derivations
+│   └── options.nix                 # module descriptor and option projection helpers
 ├── test/
 │   ├── _fixtures/
-│   │   └── minimal-complete-flake/  # renamed copied basic-flake fixture
+│   │   └── minimal-complete-flake/ # renamed copied basic-flake fixture
 │   ├── _snapshots/
 │   ├── agenix.nix
 │   ├── basic-flake.nix
 │   ├── deploy-rs.nix
 │   ├── hydra.nix
 │   ├── manifest-selection.nix
+│   ├── derivations.nix             # builder derivation collection tests
 │   ├── serialization.nix
 │   ├── nested-failure.nix
 │   ├── inventory.nix
 │   ├── manifest.nix
 │   └── nix-unit/
-└── docs/README.md
+└── docs/
+    ├── README.md
+    └── PLAN.md
 ```
 
-Do not move the copied source/test tree into a new `tests/namaka` hierarchy. Keep the existing `test/` convention and evolve it atomically. `src/evalFlake.nix` remains the public assembly entrypoint; sibling modules are extracted only along the selected boundaries. `lib/default.nix` is a thin importable wrapper and must not duplicate `src` logic.
+### 8.1 The top-level `flake.nix` specification
+The top-level `flake.nix` must remain strictly lightweight:
+- **Inputs**: Only pinned `nixpkgs` (for `lib`) and `flake-schemas` (for base schema definitions). It must **not** import NixOS, Home Manager, or Darwin at the root.
+- **Outputs**:
+  - `lib.flake`: The target-bound constructor (`{ targetFlake }: { inventory, manifest, derivations }`).
+  - `lib.lock`: The pure `flake.lock` reader helper.
+  - `formatter.<system>`: Configured treefmt / nixfmt.
+- Heavy framework dependencies (Home Manager, nix-darwin, nix-on-droid, etc.) are strictly quarantined in `checks/flake.nix` to prevent pulling hundreds of megabytes of inputs into consumer flakes.
 
-Use these atomic commits, in order:
+### 8.2 Atomic implementation order
 
-1. add importable `lib/default.nix` and expose the same `lib.flake` through the top-level flake;
-2. add the small standard `lib.lock` helper for explicit `flake.lock` paths and tests for node/edge/follows identity;
-3. pin the nixpkgs revision containing `lib.options.optionToDoc` in the checks partition and add a focused nested-option projection probe;
-4. refactor `src/evalFlake.nix` into the single shared target-resolution/evaluator constructor;
-5. extract `src/inventory.nix` and implement lazy flake-schemas inventory;
-6. extract `src/evaluation.nix`, implement atomic failures plus one-hop causal child propagation, and add focused unit tests;
-7. rename/expand `test/_fixtures/basic-flake` into `test/_fixtures/minimal-complete-flake` and update copied snapshots atomically;
-8. add `test/nested-failure.nix` and compare concatenated child links with deliberate `nix eval --show-trace` failures;
-9. add `test/serialization.nix` and the JSON conversion probes before relying on the serialization contract;
-10. extract `src/manifest.nix` and implement the single parameterized manifest selector;
-11. add `test/manifest-selection.nix` covering selected paths, omitted siblings, invalid paths, overlap, completeness, status, and causal child links;
-12. extract `src/options.nix`, implement the generic module engine and framework descriptors, and use the pinned `lib.options.optionToDoc` projection;
-13. add nested `__options` and the heavy module-framework fixtures;
-14. implement and test the explicit derivation projection;
-15. add the light package/check and verify the heavy partition lock/update workflow;
-16. write durable `docs/README.md` rationale and ensure source comments preserve every selected “why”;
-17. only after architecture acceptance, add optional host/package tooling or downstream consumers;
+Implementation proceeds in three distinct phases: Core & Builders first, Module Options strictly second, Documentation & Wrappers last.
+
+#### Phase A: Core evaluator, standard outputs, and derivation builder collection
+1. Add top-level `flake.nix` and importable `lib/default.nix`, exposing `lib.flake` and basic formatter;
+2. Add the small standard `lib.lock` helper for explicit `flake.lock` paths and tests for node/edge/follows identity;
+3. Refactor `src/evalFlake.nix` into the single target-bound constructor (`lib.flake { targetFlake }`);
+4. Extract `src/inventory.nix` and implement lazy, protocol-compliant `flake-schemas` inventory;
+5. Extract `src/evaluation.nix`, implement atomic failures with explicit `__error` sentinels and one-hop scalar `child` causal propagation, and add focused unit tests;
+6. Rename/expand `test/_fixtures/basic-flake` into `test/_fixtures/minimal-complete-flake` and update copied snapshots atomically;
+7. Add `test/nested-failure.nix` and compare concatenated child links with deliberate `nix eval --show-trace` failures;
+8. Add `test/serialization.nix` and JSON conversion probes before relying on the serialization contract;
+9. Extract `src/manifest.nix` and implement the parameterized manifest selector for standard flake outputs (packages, apps, templates, checks);
+10. Extract `src/derivations.nix` and implement the raw derivation collector (`flake.derivations { paths, safe }`) for `nix-fast-build` / CI builders;
+11. Add `test/derivations.nix` and `test/manifest-selection.nix` covering selected paths, omitted siblings, invalid paths, and builder derivation thunks;
+
+#### Phase B: Module-option evaluation (staged strictly AFTER Phase A)
+12. Pin the nixpkgs revision containing `lib.options.optionToDoc` in `checks/flake.nix` and verify nested option projection;
+13. Extract `src/options.nix`, implement the generic module engine and framework descriptors, and wire option evaluation into `manifest` (`options = true`);
+14. Add nested `__options` tests and the heavy module-framework matrix in `checks/`;
+
+#### Phase C: Validation, packaging, and durable documentation
+15. Add the light package/check and verify the heavy partition lock/update workflow;
+16. Write durable `docs/README.md` rationale and ensure source comments preserve every selected “why”;
+17. Only after architecture acceptance, add optional host/package tooling or downstream consumers.
 
 ## 9. Validation and acceptance gates
 
