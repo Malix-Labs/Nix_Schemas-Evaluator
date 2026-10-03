@@ -591,19 +591,14 @@ Nix_Schemas-Evaluator/
 │   └── options.nix                 # module descriptor and option projection helpers
 ├── test/
 │   ├── _fixtures/
-│   │   └── minimal-complete-flake/ # renamed copied basic-flake fixture
-│   ├── _snapshots/
-│   ├── agenix.nix
-│   ├── basic-flake.nix
-│   ├── deploy-rs.nix
-│   ├── hydra.nix
-│   ├── manifest-selection.nix
+│   │   └── minimal-complete-flake/ # test fixture with failure cases
 │   ├── derivations.nix             # builder derivation collection tests
-│   ├── serialization.nix
-│   ├── nested-failure.nix
-│   ├── inventory.nix
-│   ├── manifest.nix
-│   └── nix-unit/
+│   ├── inventory.nix               # pure lazy flake-schemas adapter tests
+│   ├── manifest-selection.nix      # path selector and projection tests
+│   ├── manifest.nix                # materialized JSON manifest tests
+│   ├── nested-failure.nix          # atomic error and causal chain tests
+│   ├── options.nix                 # module framework descriptor and option tree tests
+│   └── serialization.nix           # JSON boundary and scalar roundtrip tests
 └── docs/
     ├── README.md
     └── PLAN.md
