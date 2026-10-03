@@ -6,12 +6,41 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
+    namaka = {
+      url = "github:nix-community/namaka";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-darwin = {
       url = "github:LnL7/nix-darwin";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    deploy-rs = {
+      url = "github:serokell/deploy-rs";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    hydra = {
+      url = "github:NixOS/hydra";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    hjem = {
+      url = "github:feel-co/hjem";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nix-on-droid = {
+      url = "github:nix-community/nix-on-droid";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
+    nixbsd = {
+      url = "github:nixos-bsd/nixbsd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -41,177 +70,88 @@
           };
         in
         {
+          devShells.default = pkgs.mkShell {
+            packages = [ inputs.namaka.packages.${pkgs.system}.default ];
+          };
+
           checks = {
-            matrix-nixos =
-              let
-                target = {
-                  nixosModules.test =
-                    {
-                      config,
-                      lib,
-                      pkgs,
-                      ...
-                    }:
-                    {
-                      options.services.myService = {
-                        enable = lib.mkEnableOption "test service";
-                        port = lib.mkOption {
-                          type = lib.types.port;
-                          default = 8080;
-                          description = "Service port";
-                        };
-                      };
-                      config = lib.mkIf config.services.myService.enable {
-                        environment.systemPackages = [ pkgs.hello ];
-                      };
-                    };
-                };
-                manifest =
-                  (evalLib.flake {
-                    targetFlake = target;
-                    frameworkDescriptors = {
-                      nixosModules = {
-                        name = "NixOS";
-                        eval =
-                          module:
-                          let
-                            evaled = inputs.nixpkgs.lib.nixosSystem {
-                              inherit (pkgs) system;
-                              modules = [
-                                module
-                                {
-                                  system.stateVersion = "24.05";
-                                  boot.loader.grub.enable = false;
-                                  fileSystems."/".device = "/dev/null";
-                                }
-                              ];
-                            };
-                          in
-                          evaled.options;
-                      };
-                    };
-                  }).manifest
-                    { options = true; };
-              in
-              assert manifest.nixosModules.test.__options ? "$schema";
+            # Namaka snapshot-testing check
+            namaka =
               assert
-                manifest.nixosModules.test.__options.properties.services.properties.myService.properties.enable.type
-                == "boolean";
-              assert
-                manifest.nixosModules.test.__options.properties.services.properties.myService.properties.port.type
-                == "integer";
-              assert
-                manifest.nixosModules.test.__options.properties.boot.properties.loader.properties.grub.properties.enable.type
-                == "boolean";
-              pkgs.runCommand "check-matrix-nixos" { } "touch $out";
+                (inputs.namaka.lib.load {
+                  src = ./tests;
+                  inputs = {
+                    inherit evalLib;
+                    inherit (pkgs) lib;
+                  };
+                }) == { };
+              pkgs.runCommand "check-namaka" { } "touch $out";
 
-            matrix-home-manager =
+            # Real production flakes evaluated using default framework descriptors
+            flake-agenix =
               let
-                target = {
-                  homeModules.test =
-                    {
-                      config,
-                      lib,
-                      pkgs,
-                      ...
-                    }:
-                    {
-                      options.programs.myTool = {
-                        enable = lib.mkEnableOption "test tool";
-                      };
-                      config = lib.mkIf config.programs.myTool.enable {
-                        home.packages = [ pkgs.hello ];
-                        home.activation.myToolHook = lib.hm.dag.entryAfter [ "writeBoundary" ] "echo tool ready";
-                      };
-                    };
-                };
-                manifest =
-                  (evalLib.flake {
-                    targetFlake = target;
-                    frameworkDescriptors = {
-                      homeModules = {
-                        name = "Home Manager";
-                        eval =
-                          module:
-                          let
-                            hmConfig = inputs.home-manager.lib.homeManagerConfiguration {
-                              inherit pkgs;
-                              modules = [
-                                module
-                                {
-                                  home = {
-                                    username = "testuser";
-                                    homeDirectory = "/home/testuser";
-                                    stateVersion = "24.05";
-                                  };
-                                }
-                              ];
-                            };
-                          in
-                          hmConfig.options;
-                      };
-                    };
-                  }).manifest
-                    { options = true; };
+                eval = evalLib.flake { targetFlake = inputs.agenix; };
+                manifest = eval.manifest { options = true; };
               in
-              assert manifest.homeModules.test.__options ? "$schema";
-              assert
-                manifest.homeModules.test.__options.properties.programs.properties.myTool.properties.enable.type
-                == "boolean";
-              assert manifest.homeModules.test.__options.properties.home.properties.username.type == "string";
-              pkgs.runCommand "check-matrix-home-manager" { } "touch $out";
+              assert manifest ? nixosModules || manifest ? packages;
+              pkgs.writeText "check-flake-agenix.json" (builtins.toJSON manifest);
 
-            matrix-darwin =
+            flake-deploy-rs =
               let
-                target = {
-                  darwinModules.test =
-                    {
-                      config,
-                      lib,
-                      pkgs,
-                      ...
-                    }:
-                    {
-                      options.services.myDaemon = {
-                        enable = lib.mkEnableOption "test daemon";
-                      };
-                      config = lib.mkIf config.services.myDaemon.enable {
-                        environment.systemPackages = [ pkgs.hello ];
-                      };
-                    };
-                };
-                manifest =
-                  (evalLib.flake {
-                    targetFlake = target;
-                    frameworkDescriptors = {
-                      darwinModules = {
-                        name = "nix-darwin";
-                        eval =
-                          module:
-                          let
-                            darwinSys = inputs.nix-darwin.lib.darwinSystem {
-                              system = "x86_64-darwin";
-                              modules = [
-                                module
-                                {
-                                  system.stateVersion = 4;
-                                }
-                              ];
-                            };
-                          in
-                          darwinSys.options;
-                      };
-                    };
-                  }).manifest
-                    { options = true; };
+                eval = evalLib.flake { targetFlake = inputs.deploy-rs; };
+                manifest = eval.manifest { options = false; };
               in
-              assert manifest.darwinModules.test.__options ? "$schema";
-              assert
-                manifest.darwinModules.test.__options.properties.services.properties.myDaemon.properties.enable.type
-                == "boolean";
-              assert
-                manifest.darwinModules.test.__options.properties.system.properties.stateVersion.type == "integer";
-              pkgs.runCommand "check-matrix-darwin" { } "touch $out";
+              assert manifest ? apps || manifest ? packages;
+              pkgs.writeText "check-flake-deploy-rs.json" (builtins.toJSON manifest);
+
+            flake-hydra =
+              let
+                eval = evalLib.flake { targetFlake = inputs.hydra; };
+                manifest = eval.manifest { options = false; };
+              in
+              assert manifest ? hydraJobs || manifest ? packages;
+              pkgs.writeText "check-flake-hydra.json" (builtins.toJSON manifest);
+
+            # Framework flakes evaluated using default framework descriptors
+            flake-home-manager =
+              let
+                eval = evalLib.flake { targetFlake = inputs.home-manager; };
+                manifest = eval.manifest { options = true; };
+              in
+              assert manifest ? nixosModules || manifest ? darwinModules;
+              pkgs.writeText "check-flake-home-manager.json" (builtins.toJSON manifest);
+
+            flake-nix-darwin =
+              let
+                eval = evalLib.flake { targetFlake = inputs.nix-darwin; };
+                manifest = eval.manifest { options = true; };
+              in
+              assert manifest ? darwinModules || manifest ? packages;
+              pkgs.writeText "check-flake-nix-darwin.json" (builtins.toJSON manifest);
+
+            flake-hjem =
+              let
+                eval = evalLib.flake { targetFlake = inputs.hjem; };
+                manifest = eval.manifest { options = true; };
+              in
+              assert manifest ? nixosModules || manifest ? darwinModules;
+              pkgs.writeText "check-flake-hjem.json" (builtins.toJSON manifest);
+
+            flake-nix-on-droid =
+              let
+                eval = evalLib.flake { targetFlake = inputs.nix-on-droid; };
+                manifest = eval.manifest { options = false; };
+              in
+              assert manifest ? packages || manifest ? apps;
+              pkgs.writeText "check-flake-nix-on-droid.json" (builtins.toJSON manifest);
+
+            flake-nixbsd =
+              let
+                eval = evalLib.flake { targetFlake = inputs.nixbsd; };
+                manifest = eval.manifest { options = false; };
+              in
+              assert manifest ? nixosConfigurations || manifest ? packages;
+              pkgs.writeText "check-flake-nixbsd.json" (builtins.toJSON manifest);
           };
         };
     };
