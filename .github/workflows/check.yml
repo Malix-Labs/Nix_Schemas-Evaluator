@@ -1,0 +1,19 @@
+name: "Checks"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks-light:
+    name: "Light Checks"
+    uses: Malix-Labs/dotfiles/.github/workflows/check.yml@main
+
+  checks-heavy:
+    name: "Heavy Partition Checks"
+    uses: Malix-Labs/dotfiles/.github/workflows/check.yml@main
+    with:
+      working-directory: "./checks"
