@@ -2,6 +2,7 @@
   lib,
   evaluation,
   customOptionToDoc ? null,
+  frameworkDescriptors ? { },
 }:
 /**
   Module Descriptor and Option Projection Engine for Nix Schemas.
@@ -39,8 +40,8 @@ let
       lib.options.optionToDoc
         or (throw "lib.options.optionToDoc is not available in nixpkgs and no customOptionToDoc was provided.");
 
-  # Framework descriptors specifying module evaluation recipes
-  frameworkDescriptors = {
+  # Default framework descriptors specifying module evaluation recipes
+  defaultFrameworkDescriptors = {
     nixosModules = {
       name = "NixOS";
       eval =
@@ -124,10 +125,13 @@ let
     };
   };
 
-  isModuleSchema = schemaKey: frameworkDescriptors ? ${schemaKey};
+  effectiveFrameworkDescriptors = defaultFrameworkDescriptors // frameworkDescriptors;
+
+  isModuleSchema = schemaKey: effectiveFrameworkDescriptors ? ${schemaKey};
 in
 {
-  inherit optionToDoc frameworkDescriptors;
+  inherit optionToDoc;
+  frameworkDescriptors = effectiveFrameworkDescriptors;
 
   /**
     Determines if a given path corresponds to an evaluable module node.
@@ -145,7 +149,8 @@ in
       schemaKey ? "nixosModules",
     }:
     let
-      descriptor = frameworkDescriptors.${schemaKey} or frameworkDescriptors.nixosModules;
+      descriptor =
+        effectiveFrameworkDescriptors.${schemaKey} or effectiveFrameworkDescriptors.nixosModules;
 
       tryEvalModule =
         let

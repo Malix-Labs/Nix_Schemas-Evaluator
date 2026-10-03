@@ -75,6 +75,10 @@
             inherit lib;
             inherit (evalLib) flake;
           };
+          testFrameworks = import ./test/frameworks.nix {
+            inherit lib;
+            inherit (evalLib) flake;
+          };
 
           allPassing =
             (lib.all (v: v == "pass") (lib.attrValues testNested))
@@ -83,7 +87,8 @@
             && (lib.all (v: v == "pass") (lib.attrValues testManifest))
             && (lib.all (v: v == "pass") (lib.attrValues testSelection))
             && (lib.all (v: v == "pass") (lib.attrValues testDerivations))
-            && (lib.all (v: v == "pass") (lib.attrValues testOptions));
+            && (lib.all (v: v == "pass") (lib.attrValues testOptions))
+            && (lib.all (v: v == "pass") (lib.attrValues testFrameworks));
 
           lightCheck =
             assert allPassing;

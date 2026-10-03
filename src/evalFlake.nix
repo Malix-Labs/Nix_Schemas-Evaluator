@@ -2,6 +2,7 @@
   nixpkgs ? (import <nixpkgs> { }),
   flake-schemas ? (builtins.getFlake "github:DeterminateSystems/flake-schemas"),
   optionToDoc ? null,
+  frameworkDescriptors ? { },
   # Optional direct call compatibility: if targetFlake is provided directly in first argument set
   targetFlake ? null,
 }:
@@ -24,13 +25,10 @@ let
 
   evaluation = import ./evaluation.nix { inherit lib; };
   optionsEngine = import ./options.nix {
-    inherit lib evaluation;
+    inherit lib evaluation frameworkDescriptors;
     customOptionToDoc = optionToDoc;
   };
   inventoryAdapter = import ./inventory.nix { inherit lib; };
-  manifestAdapter = import ./manifest.nix {
-    inherit lib evaluation optionsEngine;
-  };
   derivationsAdapter = import ./derivations.nix { inherit lib; };
 
   resolveFlake =
@@ -64,12 +62,30 @@ let
       throw "lib.flake: targetFlake must be a flake reference string, path, or already resolved attribute set";
 
   mkConstructor =
-    { targetFlake }:
+    {
+      targetFlake,
+      frameworkDescriptors ? { },
+    }:
     let
       resolved = resolveFlake targetFlake;
 
       # Combine default schemas with any schemas declared/exported by the target flake
       allSchemas = flake-schemas.schemas // (resolved.schemas or resolved.exportedSchemas or { });
+
+      effectiveOptionsEngine =
+        if frameworkDescriptors != { } then
+          import ./options.nix {
+            inherit lib evaluation;
+            customOptionToDoc = optionToDoc;
+            frameworkDescriptors = optionsEngine.frameworkDescriptors // frameworkDescriptors;
+          }
+        else
+          optionsEngine;
+
+      manifestFn = import ./manifest.nix {
+        inherit lib evaluation;
+        optionsEngine = effectiveOptionsEngine;
+      } resolved allSchemas;
     in
     {
       /**
@@ -80,7 +96,7 @@ let
       /**
         Materialized JSON-serializable manifest for search engines, IDEs, and frontends.
       */
-      manifest = manifestAdapter resolved allSchemas;
+      manifest = manifestFn;
 
       /**
         Raw Nix derivation collector preserving buildable thunks for builders and CI.
