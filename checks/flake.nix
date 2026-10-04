@@ -156,7 +156,7 @@
                     [ "packages" ]
                     [ "darwinModules" ]
                   ];
-                  options = true;
+                  options = false;
                 };
               in
               assert manifest ? darwinModules || manifest ? packages;
@@ -171,7 +171,7 @@
                     [ "nixosModules" ]
                     [ "darwinModules" ]
                   ];
-                  options = true;
+                  options = false;
                 };
               in
               assert manifest ? nixosModules || manifest ? darwinModules;
@@ -182,14 +182,13 @@
                 eval = evalLib.flake { targetFlake = inputs.nix-on-droid; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
-                    [ "apps" ]
                     [ "overlays" ]
+                    [ "templates" ]
                   ];
                   options = false;
                 };
               in
-              assert manifest ? packages || manifest ? apps;
+              assert manifest ? overlays || manifest ? templates;
               pkgs.writeText "check-flake-nix-on-droid.json" (builtins.toJSON manifest);
 
             flake-nixbsd =
