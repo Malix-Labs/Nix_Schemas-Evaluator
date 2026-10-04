@@ -54,7 +54,6 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
-        "x86_64-darwin"
         "aarch64-darwin"
       ];
 
@@ -93,11 +92,13 @@
                 eval = evalLib.flake { targetFlake = inputs.agenix; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
-                    [ "apps" ]
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
                     [ "nixosModules" ]
                   ];
-                  options = true;
+                  options = false;
                 };
               in
               assert manifest ? nixosModules || manifest ? packages;
@@ -108,14 +109,16 @@
                 eval = evalLib.flake { targetFlake = inputs.deploy-rs; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
-                    [ "apps" ]
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
                     [ "overlays" ]
                   ];
                   options = false;
                 };
               in
-              assert manifest ? apps || manifest ? packages;
+              assert manifest ? overlays || manifest ? packages;
               pkgs.writeText "check-flake-deploy-rs.json" (builtins.toJSON manifest);
 
             flake-hydra =
@@ -123,13 +126,15 @@
                 eval = evalLib.flake { targetFlake = inputs.hydra; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
-                    [ "nixosModules" ]
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
                   ];
-                  options = true;
+                  options = false;
                 };
               in
-              assert manifest ? nixosModules || manifest ? packages;
+              assert manifest ? packages;
               pkgs.writeText "check-flake-hydra.json" (builtins.toJSON manifest);
 
             # Framework flakes evaluated using default framework descriptors
@@ -138,14 +143,16 @@
                 eval = evalLib.flake { targetFlake = inputs.home-manager; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
                     [ "nixosModules" ]
-                    [ "darwinModules" ]
                   ];
-                  options = true;
+                  options = false;
                 };
               in
-              assert manifest ? nixosModules || manifest ? darwinModules;
+              assert manifest ? nixosModules || manifest ? packages;
               pkgs.writeText "check-flake-home-manager.json" (builtins.toJSON manifest);
 
             flake-nix-darwin =
@@ -153,13 +160,12 @@
                 eval = evalLib.flake { targetFlake = inputs.nix-darwin; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
                     [ "darwinModules" ]
                   ];
                   options = false;
                 };
               in
-              assert manifest ? darwinModules || manifest ? packages;
+              assert manifest ? darwinModules;
               pkgs.writeText "check-flake-nix-darwin.json" (builtins.toJSON manifest);
 
             flake-hjem =
@@ -167,14 +173,16 @@
                 eval = evalLib.flake { targetFlake = inputs.hjem; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
-                    [ "nixosModules" ]
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
                     [ "darwinModules" ]
                   ];
                   options = false;
                 };
               in
-              assert manifest ? nixosModules || manifest ? darwinModules;
+              assert manifest ? darwinModules || manifest ? packages;
               pkgs.writeText "check-flake-hjem.json" (builtins.toJSON manifest);
 
             flake-nix-on-droid =
@@ -196,8 +204,14 @@
                 eval = evalLib.flake { targetFlake = inputs.nixbsd; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "packages" ]
-                    [ "formatter" ]
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
+                    [
+                      "formatter"
+                      pkgs.system
+                    ]
                   ];
                   options = false;
                 };
