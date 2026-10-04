@@ -3,6 +3,7 @@
   flake-schemas ? (builtins.getFlake "github:DeterminateSystems/flake-schemas"),
   optionToDoc ? null,
   frameworkDescriptors ? { },
+  pkgs ? null,
 }:
 /**
   Nix Schemas Evaluator library entry point.
@@ -21,6 +22,7 @@ let
       flake-schemas
       optionToDoc
       frameworkDescriptors
+      pkgs
       ;
   };
 in

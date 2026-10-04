@@ -3,6 +3,7 @@
   flake-schemas ? (builtins.getFlake "github:DeterminateSystems/flake-schemas"),
   optionToDoc ? null,
   frameworkDescriptors ? { },
+  pkgs ? null,
   # Optional direct call compatibility: if targetFlake is provided directly in first argument set
   targetFlake ? null,
 }:
@@ -23,9 +24,17 @@
 let
   inherit (nixpkgs) lib;
 
+  effectivePkgs =
+    if pkgs != null then
+      pkgs
+    else
+      nixpkgs.legacyPackages.${builtins.currentSystem or "x86_64-linux"}
+        or (if nixpkgs ? outPath then import nixpkgs { } else null);
+
   evaluation = import ./evaluation.nix { inherit lib; };
   optionsEngine = import ./options.nix {
     inherit lib evaluation frameworkDescriptors;
+    pkgs = effectivePkgs;
     customOptionToDoc = optionToDoc;
   };
   inventoryAdapter = import ./inventory.nix { inherit lib; };
@@ -76,6 +85,7 @@ let
         if frameworkDescriptors != { } then
           import ./options.nix {
             inherit lib evaluation;
+            pkgs = effectivePkgs;
             customOptionToDoc = optionToDoc;
             frameworkDescriptors = optionsEngine.frameworkDescriptors // frameworkDescriptors;
           }

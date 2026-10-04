@@ -60,12 +60,12 @@
       perSystem =
         { pkgs, ... }:
         let
+          prLib = import "${inputs.evaluator.inputs.nixpkgs-pr553364}/lib";
           evalLib = import "${inputs.evaluator}/lib" {
             inherit (inputs) nixpkgs;
             inherit (inputs.evaluator.inputs) flake-schemas;
-            optionToDoc =
-              inputs.nixpkgs.lib.options.optionToDoc or (import "${inputs.evaluator.inputs.nixpkgs-pr553364}/lib")
-              .options.optionToDoc;
+            inherit pkgs;
+            optionToDoc = prLib.options;
           };
         in
         {
@@ -97,8 +97,10 @@
                       pkgs.system
                     ]
                     [ "nixosModules" ]
+                    [ "darwinModules" ]
+                    [ "homeManagerModules" ]
                   ];
-                  options = false;
+                  options = true;
                 };
               in
               assert manifest ? nixosModules || manifest ? packages;
@@ -115,7 +117,7 @@
                     ]
                     [ "overlays" ]
                   ];
-                  options = false;
+                  options = true;
                 };
               in
               assert manifest ? overlays || manifest ? packages;
@@ -123,15 +125,46 @@
 
             flake-hydra =
               let
-                eval = evalLib.flake { targetFlake = inputs.hydra; };
+                hydraPkgs = pkgs.extend (inputs.hydra.overlays.default or (_: _: { }));
+                eval = evalLib.flake {
+                  targetFlake = inputs.hydra;
+                  frameworkDescriptors = {
+                    nixosModules = {
+                      name = "NixOS";
+                      eval =
+                        module:
+                        let
+                          evaled = pkgs.lib.evalModules {
+                            specialArgs = {
+                              flakePackages = inputs.hydra.packages.${pkgs.system} or { };
+                            };
+                            modules = [
+                              {
+                                _module = {
+                                  check = false;
+                                  args = {
+                                    pkgs = hydraPkgs;
+                                    flakePackages = inputs.hydra.packages.${pkgs.system} or { };
+                                  };
+                                };
+                              }
+                              module
+                            ];
+                          };
+                        in
+                        evaled.options;
+                    };
+                  };
+                };
                 manifest = eval.manifest {
                   paths = [
                     [
                       "packages"
                       pkgs.system
                     ]
+                    [ "nixosModules" ]
                   ];
-                  options = false;
+                  options = true;
                 };
               in
               assert manifest ? packages;
@@ -148,8 +181,9 @@
                       pkgs.system
                     ]
                     [ "nixosModules" ]
+                    [ "darwinModules" ]
                   ];
-                  options = false;
+                  options = true;
                 };
               in
               assert manifest ? nixosModules || manifest ? packages;
@@ -160,26 +194,87 @@
                 eval = evalLib.flake { targetFlake = inputs.nix-darwin; };
                 manifest = eval.manifest {
                   paths = [
-                    [ "darwinModules" ]
-                  ];
-                  options = false;
-                };
-              in
-              assert manifest ? darwinModules;
-              pkgs.writeText "check-flake-nix-darwin.json" (builtins.toJSON manifest);
-
-            flake-hjem =
-              let
-                eval = evalLib.flake { targetFlake = inputs.hjem; };
-                manifest = eval.manifest {
-                  paths = [
                     [
                       "packages"
                       pkgs.system
                     ]
                     [ "darwinModules" ]
                   ];
-                  options = false;
+                  options = true;
+                };
+              in
+              assert manifest ? darwinModules || manifest ? packages;
+              pkgs.writeText "check-flake-nix-darwin.json" (builtins.toJSON manifest);
+
+            flake-hjem =
+              let
+                hjemBase = {
+                  config._module.check = false;
+                  config.users.users = {
+                    "<username>" = {
+                      name = "<username>";
+                      home = "/home/<username>";
+                    };
+                  };
+                  options.users = pkgs.lib.mkOption {
+                    type = pkgs.lib.types.raw;
+                    default = {
+                      users = {
+                        "<username>" = {
+                          name = "<username>";
+                          home = "/home/<username>";
+                        };
+                      };
+                    };
+                  };
+                };
+                eval = evalLib.flake {
+                  targetFlake = inputs.hjem;
+                  frameworkDescriptors = {
+                    darwinModules = {
+                      name = "nix-darwin";
+                      eval =
+                        module:
+                        (pkgs.lib.evalModules {
+                          class = "darwin";
+                          modules = [
+                            hjemBase
+                            { _module.args.pkgs = pkgs; }
+                            module
+                          ];
+                        }).options;
+                    };
+                    nixosModules = {
+                      name = "NixOS";
+                      eval =
+                        module:
+                        (pkgs.lib.evalModules {
+                          modules = [
+                            hjemBase
+                            {
+                              _module.args.pkgs = pkgs;
+                              _module.args.utils = import (pkgs.path + "/nixos/lib/utils.nix") {
+                                inherit (pkgs) lib;
+                                inherit pkgs;
+                                config = { };
+                              };
+                            }
+                            module
+                          ];
+                        }).options;
+                    };
+                  };
+                };
+                manifest = eval.manifest {
+                  paths = [
+                    [
+                      "packages"
+                      pkgs.system
+                    ]
+                    [ "nixosModules" ]
+                    [ "darwinModules" ]
+                  ];
+                  options = true;
                 };
               in
               assert manifest ? darwinModules || manifest ? packages;
@@ -193,7 +288,7 @@
                     [ "overlays" ]
                     [ "templates" ]
                   ];
-                  options = false;
+                  options = true;
                 };
               in
               assert manifest ? overlays || manifest ? templates;
@@ -213,7 +308,7 @@
                       pkgs.system
                     ]
                   ];
-                  options = false;
+                  options = true;
                 };
               in
               assert manifest ? packages || manifest ? formatter;
