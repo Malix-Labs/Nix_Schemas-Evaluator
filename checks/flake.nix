@@ -103,7 +103,9 @@
                   options = true;
                 };
               in
-              assert manifest ? nixosModules || manifest ? packages;
+              assert manifest.nixosModules.age.__options ? "$schema";
+              assert manifest.nixosModules.age.__options.properties ? age;
+              assert manifest.nixosModules.age.__options.properties.age.properties ? secrets;
               pkgs.writeText "check-flake-agenix.json" (builtins.toJSON manifest);
 
             flake-deploy-rs =
@@ -120,7 +122,8 @@
                   options = true;
                 };
               in
-              assert manifest ? overlays || manifest ? packages;
+              assert manifest.packages.${pkgs.system} ? deploy-rs;
+              assert manifest.overlays ? default;
               pkgs.writeText "check-flake-deploy-rs.json" (builtins.toJSON manifest);
 
             flake-hydra =
@@ -167,7 +170,9 @@
                   options = true;
                 };
               in
-              assert manifest ? packages;
+              assert manifest.nixosModules.hydra.__options ? "$schema";
+              assert manifest.nixosModules.hydra.__options.properties ? services;
+              assert manifest.nixosModules.hydra.__options.properties.services.properties ? hydra-dev;
               pkgs.writeText "check-flake-hydra.json" (builtins.toJSON manifest);
 
             # Framework flakes evaluated using native framework descriptors and full option trees
@@ -222,6 +227,10 @@
                 };
               in
               assert manifest.homeModules.default ? __options;
+              assert manifest.homeModules.default.__options ? "$schema";
+              assert manifest.homeModules.default.__options.properties ? programs;
+              assert manifest.homeModules.default.__options.properties ? services;
+              assert manifest.homeModules.default.__options.properties ? home;
               pkgs.writeText "check-flake-home-manager.json" (builtins.toJSON manifest);
 
             flake-nix-darwin =
@@ -270,6 +279,10 @@
                 };
               in
               assert manifest.darwinModules.default ? __options;
+              assert manifest.darwinModules.default.__options ? "$schema";
+              assert manifest.darwinModules.default.__options.properties ? environment;
+              assert manifest.darwinModules.default.__options.properties ? services;
+              assert manifest.darwinModules.default.__options.properties ? system;
               pkgs.writeText "check-flake-nix-darwin.json" (builtins.toJSON manifest);
 
             flake-hjem =
@@ -343,7 +356,10 @@
                   options = true;
                 };
               in
-              assert manifest ? darwinModules || manifest ? packages;
+              assert manifest.nixosModules.default.__options ? "$schema";
+              assert manifest.nixosModules.default.__options.properties ? hjem;
+              assert manifest.darwinModules.default.__options ? "$schema";
+              assert manifest.darwinModules.default.__options.properties ? hjem;
               pkgs.writeText "check-flake-hjem.json" (builtins.toJSON manifest);
 
             flake-nix-on-droid =
@@ -404,6 +420,9 @@
                 };
               in
               assert manifest.nixOnDroidModules.default ? __options;
+              assert manifest.nixOnDroidModules.default.__options ? "$schema";
+              assert manifest.nixOnDroidModules.default.__options.properties ? android-integration;
+              assert manifest.nixOnDroidModules.default.__options.properties ? environment;
               pkgs.writeText "check-flake-nix-on-droid.json" (builtins.toJSON manifest);
 
             flake-nixbsd =
@@ -449,6 +468,9 @@
                 };
               in
               assert manifest.nixbsdModules.default ? __options;
+              assert manifest.nixbsdModules.default.__options ? "$schema";
+              assert manifest.nixbsdModules.default.__options.properties ? services;
+              assert manifest.nixbsdModules.default.__options.properties ? freebsd;
               pkgs.writeText "check-flake-nixbsd.json" (builtins.toJSON manifest);
           };
         };
