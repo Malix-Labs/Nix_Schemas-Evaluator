@@ -196,8 +196,8 @@ Nix is lazy. The evaluator is designed to preserve laziness:
 # Light checks (unit tests, schema evaluation, serialization probes)
 nix flake check
 
-# Format check
-nix fmt -- --check
+# Format repository
+nix fmt
 
 # Heavy matrix checks (isolated multi-framework checks: NixOS, Home Manager, Darwin)
 nix flake check ./checks

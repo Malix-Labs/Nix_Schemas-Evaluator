@@ -4,8 +4,6 @@
   optionToDoc ? null,
   frameworkDescriptors ? { },
   pkgs ? null,
-  # Optional direct call compatibility: if targetFlake is provided directly in first argument set
-  targetFlake ? null,
 }:
 /**
   Flake-family schema adapter exposed as `lib.flake`.
@@ -114,4 +112,4 @@ let
       derivations = derivationsAdapter resolved allSchemas;
     };
 in
-if targetFlake != null then mkConstructor { inherit targetFlake; } else mkConstructor
+mkConstructor
