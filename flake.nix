@@ -13,19 +13,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-schemas.url = "github:DeterminateSystems/flake-schemas";
-    nixpkgs-pr553364 = {
-      url = "github:Malix-Labs/nixpkgs/optionAttrSetToDocTree";
-      flake = false;
-    };
+    nixpkgs-pr553364.url = "github:NixOS/nixpkgs/pull/553364/head";
   };
 
   outputs =
     inputs@{ flake-parts, ... }:
     let
-      prLib = import "${inputs.nixpkgs-pr553364}/lib";
       optionToDoc =
         (inputs.nixpkgs.lib or (import inputs.nixpkgs { }).lib).options.optionToDoc
-          or prLib.options.optionToDoc;
+          or inputs.nixpkgs-pr553364.lib.options;
 
       evalLib = import ./lib {
         inherit (inputs) nixpkgs flake-schemas;

@@ -614,18 +614,33 @@
       }
     },
     "nixpkgs-pr553364": {
-      "flake": false,
       "locked": {
         "lastModified": 1790495670,
         "narHash": "sha256-prnJYj+sWakCQOIBlBf+fxMTXoTEGhkg3wyvPAY1b3U=",
-        "owner": "Malix-Labs",
+        "owner": "NixOS",
         "repo": "nixpkgs",
         "rev": "9d1bba5b1462166afd543d7c92a865889559c086",
         "type": "github"
       },
       "original": {
-        "owner": "Malix-Labs",
-        "ref": "optionAttrSetToDocTree",
+        "owner": "NixOS",
+        "ref": "pull/553364/head",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-pr553364_2": {
+      "locked": {
+        "lastModified": 1790495670,
+        "narHash": "sha256-prnJYj+sWakCQOIBlBf+fxMTXoTEGhkg3wyvPAY1b3U=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "9d1bba5b1462166afd543d7c92a865889559c086",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "pull/553364/head",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -713,7 +728,8 @@
         "nix-darwin": "nix-darwin",
         "nix-on-droid": "nix-on-droid",
         "nixbsd": "nixbsd",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "nixpkgs-pr553364": "nixpkgs-pr553364_2"
       }
     },
     "scss-reset": {
