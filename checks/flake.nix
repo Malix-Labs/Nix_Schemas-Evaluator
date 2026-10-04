@@ -170,40 +170,106 @@
               assert manifest ? packages;
               pkgs.writeText "check-flake-hydra.json" (builtins.toJSON manifest);
 
-            # Framework flakes evaluated using default framework descriptors
+            # Framework flakes evaluated using native framework descriptors and full option trees
             flake-home-manager =
               let
-                eval = evalLib.flake { targetFlake = inputs.home-manager; };
+                hmExtendedLib = import (inputs.home-manager + "/modules/lib/stdlib-extended.nix") pkgs.lib;
+                eval = evalLib.flake {
+                  targetFlake = inputs.home-manager // {
+                    homeModules = {
+                      default = {
+                        _file = "home-manager";
+                        imports = import (inputs.home-manager + "/modules/modules.nix") {
+                          inherit pkgs;
+                          lib = hmExtendedLib;
+                          check = false;
+                        };
+                      };
+                    };
+                  };
+                  frameworkDescriptors = {
+                    homeModules = {
+                      name = "Home Manager";
+                      eval =
+                        module:
+                        (hmExtendedLib.evalModules {
+                          class = "homeManager";
+                          modules = [
+                            {
+                              _module.check = false;
+                              home = {
+                                username = "test";
+                                homeDirectory = "/home/test";
+                                stateVersion = "24.11";
+                              };
+                            }
+                            module
+                          ];
+                          specialArgs = {
+                            inherit pkgs;
+                            modulesPath = toString (inputs.home-manager + "/modules");
+                          };
+                        }).options;
+                    };
+                  };
+                };
                 manifest = eval.manifest {
                   paths = [
-                    [
-                      "packages"
-                      pkgs.system
-                    ]
+                    [ "homeModules" ]
                     [ "nixosModules" ]
-                    [ "darwinModules" ]
                   ];
                   options = true;
                 };
               in
-              assert manifest ? nixosModules || manifest ? packages;
+              assert manifest.homeModules.default ? __options;
               pkgs.writeText "check-flake-home-manager.json" (builtins.toJSON manifest);
 
             flake-nix-darwin =
               let
-                eval = evalLib.flake { targetFlake = inputs.nix-darwin; };
+                darwinLib = pkgs.lib.extend (
+                  _: prev: {
+                    maintainers = prev.maintainers // {
+                      lnl7 = "lnl7";
+                    };
+                  }
+                );
+                eval = evalLib.flake {
+                  targetFlake = inputs.nix-darwin // {
+                    darwinModules = (inputs.nix-darwin.darwinModules or { }) // {
+                      default = {
+                        _file = "nix-darwin";
+                        imports = import (inputs.nix-darwin + "/modules/module-list.nix");
+                      };
+                    };
+                  };
+                  frameworkDescriptors = {
+                    darwinModules = {
+                      name = "nix-darwin";
+                      eval =
+                        module:
+                        (import (inputs.nix-darwin + "/eval-config.nix") {
+                          lib = darwinLib;
+                          modules = [
+                            {
+                              _module.check = false;
+                              nixpkgs.pkgs = pkgs;
+                              system.stateVersion = 5;
+                              system.primaryUser = "runner";
+                            }
+                            module
+                          ];
+                          enableNixpkgsReleaseCheck = false;
+                          check = false;
+                        }).options;
+                    };
+                  };
+                };
                 manifest = eval.manifest {
-                  paths = [
-                    [
-                      "packages"
-                      pkgs.system
-                    ]
-                    [ "darwinModules" ]
-                  ];
+                  paths = [ [ "darwinModules" ] ];
                   options = true;
                 };
               in
-              assert manifest ? darwinModules || manifest ? packages;
+              assert manifest.darwinModules.default ? __options;
               pkgs.writeText "check-flake-nix-darwin.json" (builtins.toJSON manifest);
 
             flake-hjem =
@@ -282,36 +348,107 @@
 
             flake-nix-on-droid =
               let
-                eval = evalLib.flake { targetFlake = inputs.nix-on-droid; };
+                nodLib = pkgs.lib.extend (
+                  _: prev: {
+                    mdDoc = prev.mdDoc or (x: x);
+                  }
+                );
+                nodPkgs = pkgs // {
+                  lib = nodLib;
+                };
+                eval = evalLib.flake {
+                  targetFlake = inputs.nix-on-droid // {
+                    schemas = {
+                      nixOnDroidModules = {
+                        version = 1;
+                        doc = "nix-on-droid modules";
+                      };
+                    };
+                    nixOnDroidModules = {
+                      default = {
+                        _file = "nix-on-droid";
+                        imports = import (inputs.nix-on-droid + "/modules/module-list.nix") {
+                          pkgs = nodPkgs;
+                          home-manager-path = inputs.home-manager;
+                          isFlake = true;
+                          targetSystem = "aarch64-linux";
+                        };
+                      };
+                    };
+                  };
+                  frameworkDescriptors = {
+                    nixOnDroidModules = {
+                      name = "nix-on-droid";
+                      eval =
+                        module:
+                        (nodLib.evalModules {
+                          class = "nixOnDroid";
+                          modules = [
+                            {
+                              _module.check = false;
+                              system.stateVersion = "24.05";
+                            }
+                            module
+                          ];
+                          specialArgs = {
+                            pkgs = nodPkgs;
+                            lib = nodLib;
+                          };
+                        }).options;
+                    };
+                  };
+                };
                 manifest = eval.manifest {
-                  paths = [
-                    [ "overlays" ]
-                    [ "templates" ]
-                  ];
+                  paths = [ [ "nixOnDroidModules" ] ];
                   options = true;
                 };
               in
-              assert manifest ? overlays || manifest ? templates;
+              assert manifest.nixOnDroidModules.default ? __options;
               pkgs.writeText "check-flake-nix-on-droid.json" (builtins.toJSON manifest);
 
             flake-nixbsd =
               let
-                eval = evalLib.flake { targetFlake = inputs.nixbsd; };
+                eval = evalLib.flake {
+                  targetFlake = inputs.nixbsd // {
+                    schemas = {
+                      nixbsdModules = {
+                        version = 1;
+                        doc = "nixbsd modules";
+                      };
+                    };
+                    nixbsdModules = {
+                      default = {
+                        _file = "nixbsd";
+                        imports = [
+                          (inputs.nixbsd + "/modules/nixos-compat.nix")
+                          (inputs.nixbsd + "/modules/services/base-system.nix")
+                          (inputs.nixbsd + "/modules/services/system/nix-daemon.nix")
+                          (inputs.nixbsd + "/modules/system/boot/init/freebsd-rc.nix")
+                        ];
+                      };
+                    };
+                  };
+                  frameworkDescriptors = {
+                    nixbsdModules = {
+                      name = "nixbsd";
+                      eval =
+                        module:
+                        (pkgs.lib.evalModules {
+                          class = "nixbsd";
+                          modules = [
+                            { _module.check = false; }
+                            module
+                          ];
+                        }).options;
+                    };
+                  };
+                };
                 manifest = eval.manifest {
-                  paths = [
-                    [
-                      "packages"
-                      pkgs.system
-                    ]
-                    [
-                      "formatter"
-                      pkgs.system
-                    ]
-                  ];
+                  paths = [ [ "nixbsdModules" ] ];
                   options = true;
                 };
               in
-              assert manifest ? packages || manifest ? formatter;
+              assert manifest.nixbsdModules.default ? __options;
               pkgs.writeText "check-flake-nixbsd.json" (builtins.toJSON manifest);
           };
         };

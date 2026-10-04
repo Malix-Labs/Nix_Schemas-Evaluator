@@ -72,7 +72,17 @@ let
           true
         else if t == "list" then
           lib.all (isSafeJsonValue (depth + 1)) val
-        else if t == "set" && !val ? _type && !lib.isDerivation val then
+        else if
+          t == "set"
+          && (
+            !val ? _type
+            || lib.elem (val._type or "") [
+              "literalExpression"
+              "literalMD"
+            ]
+          )
+          && !lib.isDerivation val
+        then
           lib.all (isSafeJsonValue (depth + 1)) (lib.attrValues val)
         else
           false;
@@ -192,17 +202,48 @@ let
                 { success = false; }
             else
               { success = false; };
+
+          docDefaultAttempt =
+            if doc ? default then
+              let
+                tryDoc = lib.tryEval doc.default;
+              in
+              if tryDoc.success && isSafeJsonValue 0 tryDoc.value then
+                {
+                  success = true;
+                  inherit (tryDoc) value;
+                }
+              else
+                { success = false; }
+            else
+              { success = false; };
+          docExampleAttempt =
+            if doc ? example then
+              let
+                tryEx = lib.tryEval doc.example;
+              in
+              if tryEx.success && isSafeJsonValue 0 tryEx.value then
+                {
+                  success = true;
+                  inherit (tryEx) value;
+                }
+              else
+                { success = false; }
+            else
+              { success = false; };
         in
         builtins.removeAttrs doc (
           [
             "type"
             "default"
+            "example"
           ]
           ++ lib.optional (doc.description == null) "description"
         )
         // safeTypeToSchema 0 opt.type subDocs
         // lib.optionalAttrs defaultAttempt.success { default = defaultAttempt.value; }
-        // lib.optionalAttrs (doc ? default) { defaultText = doc.default; }
+        // lib.optionalAttrs docDefaultAttempt.success { defaultText = docDefaultAttempt.value; }
+        // lib.optionalAttrs docExampleAttempt.success { example = docExampleAttempt.value; }
         // {
           nixType = doc.type;
         };
@@ -228,7 +269,7 @@ let
         // lib.optionalAttrs (req != [ ]) {
           required = req;
         };
-    } options;
+    } (sanitizeOptionTree options);
 
   # Sanitizes option tree before passing to optionToDoc to prevent infinite recursion
   # or missing attribute evaluation when defaults are expressions like config.foo or derivations.
@@ -237,27 +278,38 @@ let
     if !lib.isAttrs tree then
       tree
     else if tree ? _type && tree._type == "option" then
-      if tree ? defaultText || (tree.type.name or "") == "package" then
-        # When defaultText is provided or type is package, default is a derivation or complex expression.
-        # Let defaultText document it without forcing evaluation.
-        tree
+      let
+        cleanEx =
+          if tree ? example then
+            let
+              tryEx = lib.tryEval tree.example;
+            in
+            if tryEx.success && isSafeJsonValue 0 tryEx.value then
+              tree
+            else
+              builtins.removeAttrs tree [ "example" ]
+          else
+            tree;
+      in
+      if cleanEx ? defaultText || (cleanEx.type.name or "") == "package" then
+        cleanEx
         // {
           default = {
             _type = "deferred-default";
           };
         }
-      else if tree ? default then
-        if isSafeJsonValue 0 tree.default then
-          tree
+      else if cleanEx ? default then
+        if isSafeJsonValue 0 cleanEx.default then
+          cleanEx
         else
-          tree
+          cleanEx
           // {
             default = {
-              _type = "non-serializable";
+              _type = "deferred-default";
             };
           }
       else
-        tree
+        cleanEx
     else
       lib.mapAttrs (_: sanitizeOptionTree) (builtins.removeAttrs tree [ "_module" ]);
 
