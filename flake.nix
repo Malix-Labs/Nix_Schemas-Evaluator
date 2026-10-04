@@ -19,13 +19,15 @@
   outputs =
     inputs@{ flake-parts, ... }:
     let
-      optionToDoc =
-        (inputs.nixpkgs.lib or (import inputs.nixpkgs { }).lib).options.optionToDoc
-          or inputs.nixpkgs-pr553364.lib.options;
+      lib-extended =
+        if inputs.nixpkgs.lib.options ? optionToDoc then
+          inputs.nixpkgs.lib
+        else
+          inputs.nixpkgs-pr553364.lib;
 
       evalLib = import ./lib {
         inherit (inputs) nixpkgs flake-schemas;
-        inherit optionToDoc;
+        optionToDoc = lib-extended.options;
       };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {

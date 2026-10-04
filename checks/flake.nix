@@ -43,7 +43,6 @@
       url = "github:nixos-bsd/nixbsd";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nixpkgs-pr553364.url = "github:NixOS/nixpkgs/pull/553364/head";
   };
 
   outputs =
@@ -61,12 +60,7 @@
       perSystem =
         { pkgs, ... }:
         let
-          evalLib = import (inputs.evaluator + "/lib") {
-            inherit (inputs) nixpkgs;
-            inherit (inputs.evaluator.inputs) flake-schemas;
-            inherit pkgs;
-            optionToDoc = inputs.nixpkgs-pr553364.lib.options;
-          };
+          evalLib = inputs.evaluator.lib;
         in
         {
           devShells.default = pkgs.mkShell {
