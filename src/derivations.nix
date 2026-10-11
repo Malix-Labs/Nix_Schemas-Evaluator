@@ -88,8 +88,8 @@ let
       in
       if drvPathRes.success then drv else null;
 
-  collectTree =
-    currPath: node:
+  collectFromInventory =
+    currPath: rawNode: invNode:
     let
       req = isPathRequested currPath;
     in
@@ -97,7 +97,7 @@ let
       null
     else
       let
-        nodeEval = lib.tryEval node;
+        nodeEval = lib.tryEval rawNode;
       in
       if !nodeEval.success then
         if !safe then throw "Evaluation failed at path ${lib.concatStringsSep "." currPath}" else null
@@ -105,7 +105,52 @@ let
         let
           val = nodeEval.value;
         in
-        if isDerivation val then
+        if val == null then
+          null
+        else if invNode ? derivationAttrPath then
+          let
+            drvAttempt =
+              if invNode.derivationAttrPath == [ ] then
+                nodeEval
+              else
+                lib.tryEval (lib.foldl' (acc: attr: acc.${attr}) val invNode.derivationAttrPath);
+          in
+          if !drvAttempt.success then
+            if !safe then
+              throw "Evaluation of derivationAttrPath failed at ${lib.concatStringsSep "." currPath}"
+            else
+              null
+          else if isDerivation drvAttempt.value then
+            checkDrvSafe drvAttempt.value
+          else
+            null
+        else if invNode ? children && lib.isAttrs invNode.children then
+          let
+            childNames = lib.attrNames invNode.children;
+            namesToVisit =
+              if req == "all" then
+                childNames
+              else
+                lib.filter (n: isPathRequested (currPath ++ [ n ]) != "none") childNames;
+
+            collected = map (
+              name:
+              let
+                childPath = currPath ++ [ name ];
+                childInv = invNode.children.${name};
+                childRaw = if lib.isAttrs val && val ? ${name} then val.${name} else null;
+                childRes = collectFromInventory childPath childRaw childInv;
+              in
+              {
+                inherit name;
+                value = childRes;
+              }
+            ) namesToVisit;
+
+            validChildren = lib.filter (c: c.value != null) collected;
+          in
+          if validChildren == [ ] then null else lib.listToAttrs validChildren
+        else if isDerivation val then
           checkDrvSafe val
         else if lib.isAttrs val then
           let
@@ -119,7 +164,7 @@ let
               name:
               let
                 childPath = currPath ++ [ name ];
-                childRes = collectTree childPath val.${name};
+                childRes = collectFromInventory childPath val.${name} { };
               in
               {
                 inherit name;
@@ -143,7 +188,14 @@ let
     schemaKey:
     if resolvedFlake ? ${schemaKey} then
       let
-        collected = collectTree [ schemaKey ] resolvedFlake.${schemaKey};
+        schemaDef = allSchemas.${schemaKey} or { };
+        invAttempt =
+          if schemaDef ? inventory then
+            lib.tryEval (schemaDef.inventory resolvedFlake.${schemaKey})
+          else
+            { success = false; };
+        invNode = if invAttempt.success && lib.isAttrs invAttempt.value then invAttempt.value else { };
+        collected = collectFromInventory [ schemaKey ] resolvedFlake.${schemaKey} invNode;
       in
       if collected != null then
         {
