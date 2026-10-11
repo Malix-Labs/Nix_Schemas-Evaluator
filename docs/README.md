@@ -190,15 +190,18 @@ Nix is lazy. The evaluator is designed to preserve laziness:
 }
 ```
 
-### 3.2 Running Checks
+### 3.2 Running Checks & Updating Inputs
 
 ```bash
-# Light checks (unit tests, schema evaluation, serialization probes)
+# Run all checks (unit suite + isolated framework matrix partitioned checks)
 nix flake check
 
 # Format repository
 nix fmt
 
-# Heavy matrix checks (isolated multi-framework checks: NixOS, Home Manager, Darwin)
-nix flake check ./checks
+# Update top-level development and library inputs
+nix flake update
+
+# Update isolated test matrix framework fixtures
+nix flake update --flake ./checks
 ```

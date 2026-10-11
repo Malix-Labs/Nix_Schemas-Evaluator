@@ -34,8 +34,16 @@
       systems = import inputs.systems;
 
       imports = [
+        inputs.flake-parts.flakeModules.partitions
         inputs.git-hooks-nix.flakeModule
       ];
+
+      partitionedAttrs.checks = "heavy";
+
+      partitions.heavy = {
+        extraInputsFlake = ./checks;
+        module = import ./checks/flake-module.nix;
+      };
 
       perSystem =
         {
