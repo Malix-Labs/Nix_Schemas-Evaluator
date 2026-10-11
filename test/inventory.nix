@@ -6,7 +6,7 @@ let
   invSafe = evaluator.inventory { safe = true; };
 
   # Verify laziness: accessing attrNames of packages children must succeed
-  pkgNames = builtins.attrNames invSafe.packages.children.x86_64-linux.children;
+  pkgNames = lib.attrNames invSafe.packages.children.x86_64-linux.children;
 
   # Verify app checks in safe mode
   safeAppNode = invSafe.apps.children.aarch64-linux.children.app-hello;

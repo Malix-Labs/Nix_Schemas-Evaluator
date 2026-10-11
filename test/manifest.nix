@@ -22,7 +22,7 @@ let
     # 1. Package projection contains explicit fields
     testPackageExplicitFields = {
       expr = {
-        hasName = builtins.isString helloPkg.name;
+        hasName = lib.isString helloPkg.name;
         hasOutputs = lib.isList helloPkg.outputs;
         hasOutputName = helloPkg.outputName == "out";
         hasMeta = lib.isAttrs helloPkg.meta;
@@ -89,7 +89,7 @@ let
     testAppProjection = {
       expr = {
         inherit (helloApp) type;
-        hasProgram = builtins.isString helloApp.program;
+        hasProgram = lib.isString helloApp.program;
       };
       expected = {
         type = "app";

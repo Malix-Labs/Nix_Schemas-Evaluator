@@ -70,7 +70,7 @@ let
         nullVal = parsedScalars.nullField;
         boolVal = parsedScalars.boolTrue;
         inherit (parsedScalars) intVal strVal;
-        listLen = builtins.length parsedScalars.listVal;
+        listLen = lib.length parsedScalars.listVal;
       };
       expected = {
         nullVal = null;
@@ -105,12 +105,12 @@ let
     };
 
     testStringWithContext = {
-      expr = builtins.isString jsonContext;
+      expr = lib.isString jsonContext;
       expected = true;
     };
 
     testSourcePosition = {
-      expr = builtins.isString jsonPos;
+      expr = lib.isString jsonPos;
       expected = true;
     };
   };

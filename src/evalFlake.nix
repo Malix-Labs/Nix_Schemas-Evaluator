@@ -36,16 +36,17 @@ let
     customOptionToDoc = optionToDoc;
   };
   inventoryAdapter = import ./inventory.nix { inherit lib; };
-  derivationsAdapter = import ./derivations.nix { inherit lib; };
+  derivationsAdapter = import ./derivations.nix { inherit lib evaluation; };
   selectAdapter = import ./select.nix { inherit lib; };
 
   resolveFlake =
     tf:
     if lib.isAttrs tf then
       tf
-    else if lib.isPath tf then
+    else if lib.isPath tf || (lib.isString tf && lib.hasPrefix "path:" tf) then
       let
-        flakeExpr = import (tf + "/flake.nix");
+        pathVal = if lib.isPath tf then tf else /. + (lib.removePrefix "path:" tf);
+        flakeExpr = import (pathVal + "/flake.nix");
         resolvedSelf = flakeExpr.outputs {
           self = resolvedSelf;
           inherit nixpkgs;
@@ -53,19 +54,7 @@ let
       in
       resolvedSelf
     else if lib.isString tf then
-      if lib.hasPrefix "path:" tf then
-        let
-          rawPath = lib.removePrefix "path:" tf;
-          pathVal = /. + rawPath;
-          flakeExpr = import (pathVal + "/flake.nix");
-          resolvedSelf = flakeExpr.outputs {
-            self = resolvedSelf;
-            inherit nixpkgs;
-          };
-        in
-        resolvedSelf
-      else
-        builtins.getFlake tf
+      builtins.getFlake tf
     else
       throw "lib.flake: targetFlake must be a flake reference string, path, or already resolved attribute set";
 

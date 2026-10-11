@@ -260,7 +260,7 @@ let
               opt = clean.${n};
             in
             optLib.isOption opt && !(opt ? default || opt ? defaultText)
-          ) (builtins.attrNames clean);
+          ) (lib.attrNames clean);
         in
         {
           type = "object";
@@ -329,89 +329,35 @@ let
     _module.args.pkgs = pkgs;
   });
 
+  mkFramework = name: class: {
+    inherit name;
+    eval =
+      module:
+      (lib.evalModules {
+        inherit class;
+        modules = baseModules ++ [ module ];
+      }).options;
+  };
+
   # Default framework descriptors specifying module evaluation recipes
   defaultFrameworkDescriptors = {
     nixosModules = {
       name = "NixOS";
       eval =
         module:
-        let
-          evaled = lib.evalModules {
-            modules = baseModules ++ [ module ];
-          };
-        in
-        evaled.options;
+        (lib.evalModules {
+          modules = baseModules ++ [ module ];
+        }).options;
     };
-
-    darwinModules = {
-      name = "nix-darwin";
-      eval =
-        module:
-        let
-          evaled = lib.evalModules {
-            class = "darwin";
-            modules = baseModules ++ [ module ];
-          };
-        in
-        evaled.options;
-    };
-
-    homeModules = {
-      name = "Home Manager";
-      eval =
-        module:
-        let
-          evaled = lib.evalModules {
-            class = "home-manager";
-            modules = baseModules ++ [ module ];
-          };
-        in
-        evaled.options;
-    };
-
+    darwinModules = mkFramework "nix-darwin" "darwin";
+    homeModules = mkFramework "Home Manager" "home-manager";
     homeManagerModules = {
       name = "Home Manager";
       eval = effectiveFrameworkDescriptors.homeModules.eval;
     };
-
-    hjemModules = {
-      name = "hjem";
-      eval =
-        module:
-        let
-          evaled = lib.evalModules {
-            class = "hjem";
-            modules = baseModules ++ [ module ];
-          };
-        in
-        evaled.options;
-    };
-
-    nixOnDroidModules = {
-      name = "nix-on-droid";
-      eval =
-        module:
-        let
-          evaled = lib.evalModules {
-            class = "nix-on-droid";
-            modules = baseModules ++ [ module ];
-          };
-        in
-        evaled.options;
-    };
-
-    nixbsdModules = {
-      name = "nixbsd";
-      eval =
-        module:
-        let
-          evaled = lib.evalModules {
-            class = "nixbsd";
-            modules = baseModules ++ [ module ];
-          };
-        in
-        evaled.options;
-    };
+    hjemModules = mkFramework "hjem" "hjem";
+    nixOnDroidModules = mkFramework "nix-on-droid" "nix-on-droid";
+    nixbsdModules = mkFramework "nixbsd" "nixbsd";
   };
 
   effectiveFrameworkDescriptors = defaultFrameworkDescriptors // frameworkDescriptors;
@@ -425,7 +371,7 @@ in
   /**
     Determines if a given path corresponds to an evaluable module node.
   */
-  isModuleNode = schemaKey: currPath: isModuleSchema schemaKey && builtins.length currPath >= 2;
+  isModuleNode = schemaKey: currPath: isModuleSchema schemaKey && lib.length currPath >= 2;
 
   /**
     Evaluates module options for a module definition and attaches `__options`.

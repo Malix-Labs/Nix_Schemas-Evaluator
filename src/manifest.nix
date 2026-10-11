@@ -35,9 +35,13 @@ resolvedFlake: allSchemas:
 let
   inherit (evaluation)
     mkError
-    statusFromStatuses
     addEvaluation
+    stripEvaluation
     safeValue
+    aggregateResults
+    buildPathTrie
+    lookupSubTrie
+    mkPathChecker
     ;
 
   exportedDerivationKeys = [
@@ -50,55 +54,8 @@ let
     "meta"
   ];
 
-  /**
-    Path trie helper for fast and accurate path-selection queries.
-    Determines whether a given path prefix is:
-    - "all": exactly requested or an ancestor of an exact request -> include all descendants
-    - "partial": a strict prefix of some requested path -> only include matching children
-    - "none": not requested -> omit completely
-  */
-  buildPathTrie =
-    pathList:
-    let
-      insert =
-        trie: path:
-        if path == [ ] then
-          trie // { __match = true; }
-        else
-          let
-            head = lib.head path;
-            tail = lib.tail path;
-            subTrie = trie.${head} or { };
-          in
-          trie
-          // {
-            ${head} = insert subTrie tail;
-          };
-    in
-    lib.foldl' insert { } pathList;
-
   pathTrie = if paths != null then buildPathTrie paths else null;
-
-  isPathRequested =
-    currPath:
-    if pathTrie == null then
-      "all"
-    else
-      let
-        lookup =
-          trie: p:
-          if trie ? __match then
-            "all"
-          else if p == [ ] then
-            if trie == { } then "none" else "partial"
-          else
-            let
-              head = lib.head p;
-              tail = lib.tail p;
-            in
-            if trie ? ${head} then lookup trie.${head} tail else "none";
-      in
-      lookup pathTrie currPath;
+  isPathRequested = mkPathChecker pathTrie;
 
   # Evaluates explicit package derivation fields
   evalDrvPackage =
@@ -169,45 +126,28 @@ let
 
           evaluatedFields = map (
             key:
-            if drv ? ${key} then
-              {
-                inherit key;
-                result = evalField key;
-              }
-            else
-              {
-                inherit key;
-                result = {
-                  success = true;
-                  value = null;
-                  status = "passing";
-                  failures = [ ];
-                };
-              }
+            let
+              res =
+                if drv ? ${key} then
+                  evalField key
+                else
+                  {
+                    value = null;
+                    status = "passing";
+                  };
+            in
+            {
+              name = key;
+              inherit (res) status value;
+            }
           ) exportedDerivationKeys;
 
-          fieldStatuses = map (f: f.result.status) evaluatedFields;
-          status = statusFromStatuses fieldStatuses;
-
-          failures = lib.concatLists (
-            map (
-              f:
-              if f.result.status != "passing" then
-                [
-                  {
-                    child = f.key;
-                    kind = "cascade";
-                  }
-                ]
-              else
-                [ ]
-            ) evaluatedFields
-          );
+          agg = aggregateResults evaluatedFields;
+          inherit (agg) status failures;
 
           materializedRecord = lib.listToAttrs (
             map (f: {
-              name = f.key;
-              value = f.result.value;
+              inherit (f) name value;
             }) evaluatedFields
           );
         in
@@ -279,24 +219,19 @@ let
 
           metaRes = if appVal ? meta then safeValue appVal.meta else null;
 
-          failures =
-            (lib.optional (programEval.status != "passing") {
-              child = "program";
-              kind = "cascade";
-            })
-            ++ (lib.optional (metaRes != null && metaRes.status != "passing") {
-              child = "meta";
-              kind = "cascade";
-            });
+          evaluatedParts = [
+            {
+              name = "program";
+              inherit (programEval) status;
+            }
+          ]
+          ++ lib.optional (metaRes != null) {
+            name = "meta";
+            inherit (metaRes) status;
+          };
 
-          status =
-            if metaRes != null then
-              statusFromStatuses [
-                programEval.status
-                metaRes.status
-              ]
-            else
-              programEval.status;
+          agg = aggregateResults evaluatedParts;
+          inherit (agg) status failures;
 
           base = {
             type = "app";
@@ -340,8 +275,7 @@ let
 
         # Merge base inventory metadata with projected payload
         mergedValue =
-          (builtins.removeAttrs baseNode [ "__evaluation" ])
-          // (if lib.isAttrs projVal then projVal else { value = projVal; });
+          (stripEvaluation baseNode) // (if lib.isAttrs projVal then projVal else { value = projVal; });
 
         status = projStatus;
         failures = projFailures;
@@ -389,7 +323,7 @@ let
           || (lib.isAttrs invNode && (invNode.what or null) == "app" || (invNode.what or null) == "package")
         then
           let
-            system = if builtins.length currPath > 1 then lib.elemAt currPath 1 else "";
+            system = if lib.length currPath > 1 then lib.elemAt currPath 1 else "";
           in
           enrichItem currPath schemaKey system (lib.last currPath) rawVal (
             if lib.isAttrs invNode then invNode else { }
@@ -422,9 +356,7 @@ let
             requestedMissingChildren =
               if pathTrie != null then
                 let
-                  # Find expected child keys at currPath from pathTrie
-                  lookupTrie = t: p: if p == [ ] then t else lookupTrie (t.${lib.head p} or { }) (lib.tail p);
-                  subTrie = lookupTrie pathTrie currPath;
+                  subTrie = lookupSubTrie pathTrie currPath;
                   childKeys = lib.filter (k: k != "__match") (lib.attrNames subTrie);
                 in
                 lib.filter (k: !lib.elem k rawNames) childKeys
@@ -451,48 +383,30 @@ let
                 res = materializeSubtree childPath childRaw childInv schemaKey;
               in
               {
-                inherit name res;
+                inherit name;
+                inherit (res) status value;
               }
             ) childNamesToVisit;
 
             # Missing children that were explicitly requested
             missingChildren = map (name: {
               inherit name;
-              res = {
-                value = mkError {
-                  kind = "missing_attribute";
-                  message = "attribute '${name}' missing at path ${lib.concatStringsSep "." currPath}";
-                };
-                status = "failing";
-                failures = [ ];
+              status = "failing";
+              value = mkError {
+                kind = "missing_attribute";
+                message = "attribute '${name}' missing at path ${lib.concatStringsSep "." currPath}";
               };
             }) requestedMissingChildren;
 
             allChildResults = visitedChildren ++ missingChildren;
-            filteredChildResults = lib.filter (c: c.res != null) allChildResults;
+            filteredChildResults = lib.filter (c: c.value != null) allChildResults;
 
-            childStatuses = map (c: c.res.status) filteredChildResults;
-            status = statusFromStatuses childStatuses;
-
-            failures = lib.concatLists (
-              map (
-                c:
-                if c.res.status != "passing" then
-                  [
-                    {
-                      child = c.name;
-                      kind = "cascade";
-                    }
-                  ]
-                else
-                  [ ]
-              ) filteredChildResults
-            );
+            agg = aggregateResults filteredChildResults;
+            inherit (agg) status failures;
 
             childAttrset = lib.listToAttrs (
               map (c: {
-                inherit (c) name;
-                value = c.res.value;
+                inherit (c) name value;
               }) filteredChildResults
             );
 

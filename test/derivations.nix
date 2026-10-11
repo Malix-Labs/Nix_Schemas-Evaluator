@@ -29,8 +29,8 @@ let
       expr = {
         isDrv = lib.isDerivation helloDrv;
         inherit (helloDrv) type;
-        hasDrvPath = builtins.isString helloDrv.drvPath;
-        hasOutPath = builtins.isString helloDrv.outPath;
+        hasDrvPath = lib.isString helloDrv.drvPath;
+        hasOutPath = lib.isString helloDrv.outPath;
       };
       expected = {
         isDrv = true;

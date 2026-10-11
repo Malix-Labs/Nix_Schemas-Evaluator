@@ -1,4 +1,7 @@
-{ lib }:
+{
+  lib,
+  evaluation ? import ./evaluation.nix { inherit lib; },
+}:
 /**
   Raw Derivation Collector for Builders (CI, nix-fast-build, nix-eval-jobs, Hydra).
 
@@ -27,48 +30,10 @@ resolvedFlake: allSchemas:
   safe ? true,
 }:
 let
-  buildPathTrie =
-    pathList:
-    let
-      insert =
-        trie: path:
-        if path == [ ] then
-          trie // { __match = true; }
-        else
-          let
-            head = lib.head path;
-            tail = lib.tail path;
-            subTrie = trie.${head} or { };
-          in
-          trie
-          // {
-            ${head} = insert subTrie tail;
-          };
-    in
-    lib.foldl' insert { } pathList;
+  inherit (evaluation) buildPathTrie mkPathChecker;
 
   pathTrie = if paths != null then buildPathTrie paths else null;
-
-  isPathRequested =
-    currPath:
-    if pathTrie == null then
-      "all"
-    else
-      let
-        lookup =
-          trie: p:
-          if trie ? __match then
-            "all"
-          else if p == [ ] then
-            if trie == { } then "none" else "partial"
-          else
-            let
-              head = lib.head p;
-              tail = lib.tail p;
-            in
-            if trie ? ${head} then lookup trie.${head} tail else "none";
-      in
-      lookup pathTrie currPath;
+  isPathRequested = mkPathChecker pathTrie;
 
   isDerivation =
     val:

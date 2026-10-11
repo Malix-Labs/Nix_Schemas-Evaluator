@@ -65,11 +65,89 @@ rec {
       "passing";
 
   /**
+    Aggregates a list of child records (each having `name` (or `child`) and `status`)
+    into `{ status = ...; failures = [ ... ]; }`.
+  */
+  aggregateResults =
+    items:
+    let
+      childStatuses = map (c: c.status) items;
+    in
+    {
+      status = statusFromStatuses childStatuses;
+      failures = lib.concatLists (
+        map (
+          c:
+          if c.status != "passing" then
+            [
+              {
+                child = c.name or c.child;
+                kind = "cascade";
+              }
+            ]
+          else
+            [ ]
+        ) items
+      );
+    };
+
+  /**
+    Path trie helper for fast and accurate path-selection queries.
+    Determines whether a given path prefix is:
+    - "all": exactly requested or an ancestor of an exact request -> include all descendants
+    - "partial": a strict prefix of some requested path -> only include matching children
+    - "none": not requested -> omit completely
+  */
+  buildPathTrie =
+    pathList:
+    let
+      insert =
+        trie: path:
+        if path == [ ] then
+          trie // { __match = true; }
+        else
+          let
+            head = lib.head path;
+            tail = lib.tail path;
+          in
+          trie // { ${head} = insert (trie.${head} or { }) tail; };
+    in
+    lib.foldl' insert { } pathList;
+
+  lookupSubTrie =
+    trie: path:
+    if path == [ ] || trie == null then
+      trie
+    else
+      lookupSubTrie (trie.${lib.head path} or { }) (lib.tail path);
+
+  mkPathChecker =
+    pathTrie:
+    if pathTrie == null then
+      _: "all"
+    else
+      let
+        lookup =
+          trie: p:
+          if trie ? __match then
+            "all"
+          else if p == [ ] then
+            if trie == { } then "none" else "partial"
+          else
+            let
+              head = lib.head p;
+              tail = lib.tail p;
+            in
+            if trie ? ${head} then lookup trie.${head} tail else "none";
+      in
+      lookup pathTrie;
+
+  /**
     Removes the evaluator internal `__evaluation` sidecar from an attribute set
     so that child iteration never treats `__evaluation` as a child node.
   */
   stripEvaluation =
-    attrs: if lib.isAttrs attrs then builtins.removeAttrs attrs [ "__evaluation" ] else attrs;
+    attrs: if lib.isAttrs attrs then lib.removeAttrs attrs [ "__evaluation" ] else attrs;
 
   /**
     Attaches an `__evaluation` sidecar to an attribute set if status is non-passing.
@@ -162,36 +240,20 @@ rec {
             childrenResults = map (
               name:
               let
-                childRes = safeValue evalAttempt.value.${name};
+                res = safeValue evalAttempt.value.${name};
               in
               {
-                inherit name childRes;
+                inherit name;
+                inherit (res) status value;
               }
             ) cleanNames;
 
-            childStatuses = map (c: c.childRes.status) childrenResults;
-            status = statusFromStatuses childStatuses;
-
-            # One-hop causal links: point directly to non-passing children
-            failures = lib.concatLists (
-              map (
-                c:
-                if c.childRes.status != "passing" then
-                  [
-                    {
-                      child = c.name;
-                      kind = "cascade";
-                    }
-                  ]
-                else
-                  [ ]
-              ) childrenResults
-            );
+            agg = aggregateResults childrenResults;
+            inherit (agg) status failures;
 
             materializedValues = lib.listToAttrs (
               map (c: {
-                inherit (c) name;
-                value = c.childRes.value;
+                inherit (c) name value;
               }) childrenResults
             );
           in
@@ -208,37 +270,20 @@ rec {
         itemsResults = lib.imap0 (
           index: item:
           let
-            itemRes = safeValue item;
+            res = safeValue item;
           in
           {
-            index = toString index;
-            inherit itemRes;
+            name = toString index;
+            inherit (res) status value;
           }
         ) evalAttempt.value;
 
-        itemStatuses = map (i: i.itemRes.status) itemsResults;
-        status = statusFromStatuses itemStatuses;
-
-        failures = lib.concatLists (
-          map (
-            i:
-            if i.itemRes.status != "passing" then
-              [
-                {
-                  child = i.index;
-                  kind = "cascade";
-                }
-              ]
-            else
-              [ ]
-          ) itemsResults
-        );
-
-        materializedList = map (i: i.itemRes.value) itemsResults;
+        agg = aggregateResults itemsResults;
+        inherit (agg) status failures;
       in
       {
         success = status == "passing";
-        value = materializedList;
+        value = map (i: i.value) itemsResults;
         inherit status failures;
       }
     else

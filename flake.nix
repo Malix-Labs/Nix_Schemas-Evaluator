@@ -55,46 +55,36 @@
           inherit (pkgs) lib;
           evaluation = import ./src/evaluation.nix { inherit lib; };
 
-          testNested = import ./test/nested-failure.nix {
-            inherit lib evaluation;
-          };
-          testSerialization = import ./test/serialization.nix {
-            inherit lib evaluation;
-          };
-          testInventory = import ./test/inventory.nix {
-            inherit lib;
-            inherit (evalLib) flake;
-          };
-          testManifest = import ./test/manifest.nix {
-            inherit lib;
-            inherit (evalLib) flake;
-          };
-          testSelection = import ./test/manifest-selection.nix {
-            inherit lib;
-            inherit (evalLib) flake;
-          };
-          testDerivations = import ./test/derivations.nix {
-            inherit lib;
-            inherit (evalLib) flake;
-          };
-          testOptions = import ./test/options.nix {
-            inherit lib;
-            inherit (evalLib) flake;
-          };
-          testFrameworks = import ./test/frameworks.nix {
-            inherit lib;
-            inherit (evalLib) flake;
-          };
+          testSuites = [
+            (import ./test/nested-failure.nix { inherit lib evaluation; })
+            (import ./test/serialization.nix { inherit lib evaluation; })
+            (import ./test/inventory.nix {
+              inherit lib;
+              inherit (evalLib) flake;
+            })
+            (import ./test/manifest.nix {
+              inherit lib;
+              inherit (evalLib) flake;
+            })
+            (import ./test/manifest-selection.nix {
+              inherit lib;
+              inherit (evalLib) flake;
+            })
+            (import ./test/derivations.nix {
+              inherit lib;
+              inherit (evalLib) flake;
+            })
+            (import ./test/options.nix {
+              inherit lib;
+              inherit (evalLib) flake;
+            })
+            (import ./test/frameworks.nix {
+              inherit lib;
+              inherit (evalLib) flake;
+            })
+          ];
 
-          allPassing =
-            (lib.all (v: v == "pass") (lib.attrValues testNested))
-            && (lib.all (v: v == "pass") (lib.attrValues testSerialization))
-            && (lib.all (v: v == "pass") (lib.attrValues testInventory))
-            && (lib.all (v: v == "pass") (lib.attrValues testManifest))
-            && (lib.all (v: v == "pass") (lib.attrValues testSelection))
-            && (lib.all (v: v == "pass") (lib.attrValues testDerivations))
-            && (lib.all (v: v == "pass") (lib.attrValues testOptions))
-            && (lib.all (v: v == "pass") (lib.attrValues testFrameworks));
+          allPassing = lib.all (suite: lib.all (v: v == "pass") (lib.attrValues suite)) testSuites;
 
           lightCheck =
             assert allPassing;
