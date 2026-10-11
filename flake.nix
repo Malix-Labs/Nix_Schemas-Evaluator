@@ -172,7 +172,7 @@
 
       flake = {
         lib = {
-          inherit (evalLib) flake;
+          inherit (evalLib) flake select;
         };
       };
     };

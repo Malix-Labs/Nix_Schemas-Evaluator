@@ -75,6 +75,24 @@ let
         hasTestPkg = false;
       };
     };
+
+    # 5. Flat select adapter flattens paths and filters by system
+    testSelectFlattensAndFiltersBySystem =
+      let
+        selectedFlat = evaluator.select { system = "x86_64-linux"; };
+      in
+      {
+        expr = {
+          hasHello = selectedFlat ? "packages.x86_64-linux.hello";
+          hasHelloDarwin = selectedFlat ? "packages.x86_64-darwin.hello";
+          isDrv = lib.isDerivation selectedFlat."packages.x86_64-linux.hello";
+        };
+        expected = {
+          hasHello = true;
+          hasHelloDarwin = false;
+          isDrv = true;
+        };
+      };
   };
 
   results = lib.mapAttrs (

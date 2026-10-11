@@ -37,6 +37,7 @@ let
   };
   inventoryAdapter = import ./inventory.nix { inherit lib; };
   derivationsAdapter = import ./derivations.nix { inherit lib; };
+  selectAdapter = import ./select.nix { inherit lib; };
 
   resolveFlake =
     tf:
@@ -110,6 +111,11 @@ let
         Raw Nix derivation collector preserving buildable thunks for builders and CI.
       */
       derivations = derivationsAdapter resolved allSchemas;
+
+      /**
+        Flat derivation selector adapter for nix-fast-build and nix-eval-jobs.
+      */
+      select = selectAdapter derivationsAdapter resolved allSchemas;
     };
 in
 mkConstructor

@@ -32,4 +32,13 @@ in
     Resolves `targetFlake` once to ensure shared evaluation heap across all views.
   */
   flake = evalFlakeModule;
+
+  /**
+    Direct flake-outputs selector conforming to `nix-eval-jobs --select` and `nix-fast-build`.
+    Can be used as:
+      `lib.select { system = "x86_64-linux"; } flakeOutputs`
+    or directly passed without options:
+      `lib.select { } flakeOutputs`
+  */
+  select = opts: flakeOutputs: (evalFlakeModule { targetFlake = flakeOutputs; }).select opts;
 }
