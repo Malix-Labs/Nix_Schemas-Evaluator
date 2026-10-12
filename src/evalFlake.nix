@@ -41,22 +41,26 @@ let
 
   resolveFlake =
     tf:
-    if lib.isAttrs tf then
-      tf
-    else if lib.isPath tf || (lib.isString tf && lib.hasPrefix "path:" tf) then
-      let
-        pathVal = if lib.isPath tf then tf else /. + (lib.removePrefix "path:" tf);
-        flakeExpr = import (pathVal + "/flake.nix");
-        resolvedSelf = flakeExpr.outputs {
-          self = resolvedSelf;
-          inherit nixpkgs;
-        };
-      in
-      resolvedSelf
-    else if lib.isString tf then
-      builtins.getFlake tf
-    else
-      throw "lib.flake: targetFlake must be a flake reference string, path, or already resolved attribute set";
+    let
+      raw =
+        if lib.isAttrs tf then
+          tf
+        else if lib.isPath tf || (lib.isString tf && lib.hasPrefix "path:" tf) then
+          let
+            pathVal = if lib.isPath tf then tf else /. + (lib.removePrefix "path:" tf);
+            flakeExpr = import (pathVal + "/flake.nix");
+            resolvedSelf = flakeExpr.outputs {
+              self = resolvedSelf;
+              inherit nixpkgs;
+            };
+          in
+          resolvedSelf
+        else if lib.isString tf then
+          builtins.getFlake tf
+        else
+          throw "lib.flake: targetFlake must be a flake reference string, path, or already resolved attribute set";
+    in
+    if raw ? outputs && lib.isAttrs raw.outputs then (raw.outputs // raw) else raw;
 
   mkConstructor =
     {
