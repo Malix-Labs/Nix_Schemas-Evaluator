@@ -21,7 +21,7 @@ derivationsAdapter: resolvedFlake: allSchemas:
 }:
 let
   drvsTree = derivationsAdapter resolvedFlake allSchemas {
-    inherit paths safe;
+    inherit paths safe system;
   };
 
   matchesSystem =

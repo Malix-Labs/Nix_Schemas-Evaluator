@@ -28,6 +28,7 @@ resolvedFlake: allSchemas:
 {
   paths ? null,
   safe ? true,
+  system ? null,
 }:
 let
   inherit (evaluation) buildPathTrie mkPathChecker;
@@ -44,7 +45,13 @@ let
 
   checkDrvSafe =
     drv:
-    if !safe then
+    if
+      system != null
+      && (drv.system or drv.stdenv.hostPlatform.system or null) != null
+      && (drv.system or drv.stdenv.hostPlatform.system) != system
+    then
+      null
+    else if !safe then
       drv
     else
       let
@@ -59,6 +66,14 @@ let
       req = isPathRequested currPath;
     in
     if req == "none" then
+      null
+    # If this inventory node explicitly declares supported systems, prune if it does not match target system
+    else if
+      system != null
+      && invNode ? forSystems
+      && lib.isList invNode.forSystems
+      && !lib.elem system invNode.forSystems
+    then
       null
     else
       let
@@ -91,12 +106,25 @@ let
             null
         else if invNode ? children && lib.isAttrs invNode.children then
           let
+            knownSystems = [
+              "x86_64-linux"
+              "aarch64-linux"
+              "x86_64-darwin"
+              "aarch64-darwin"
+              "i686-linux"
+              "riscv64-linux"
+            ];
             childNames = lib.attrNames invNode.children;
+            filteredChildNames =
+              if system != null && lib.any (n: lib.elem n knownSystems) childNames then
+                lib.filter (n: n == system) childNames
+              else
+                childNames;
             namesToVisit =
               if req == "all" then
-                childNames
+                filteredChildNames
               else
-                lib.filter (n: isPathRequested (currPath ++ [ n ]) != "none") childNames;
+                lib.filter (n: isPathRequested (currPath ++ [ n ]) != "none") filteredChildNames;
 
             collected = map (
               name:
