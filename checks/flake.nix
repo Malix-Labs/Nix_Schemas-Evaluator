@@ -1,5 +1,5 @@
 {
-  description = "Heavy module framework matrix inputs for Nix Schemas Evaluator checks partition";
+  description = "External framework fixture inputs for Nix Schemas Evaluator checks partition";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -44,6 +44,6 @@
     };
   };
 
-  # Subflake used as extraInputsFlake for the `heavy` partition in the top-level flake
+  # Subflake used as extraInputsFlake for the `fixtures` partition in the top-level flake
   outputs = _: { };
 }

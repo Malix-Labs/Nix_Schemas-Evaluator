@@ -38,9 +38,9 @@
         inputs.git-hooks-nix.flakeModule
       ];
 
-      partitionedAttrs.checks = "heavy";
+      partitionedAttrs.checks = "fixtures";
 
-      partitions.heavy = {
+      partitions.fixtures = {
         extraInputsFlake = ./checks;
         module = import ./checks/flake-module.nix;
       };
@@ -86,9 +86,9 @@
 
           allPassing = lib.all (suite: lib.all (v: v == "pass") (lib.attrValues suite)) testSuites;
 
-          lightCheck =
+          unit-tests =
             assert allPassing;
-            pkgs.runCommand "evalSchema-light" { } "touch $out";
+            pkgs.runCommand "unit-tests" { } "touch $out";
         in
         {
           pre-commit.settings.hooks = {
@@ -157,12 +157,12 @@
             '';
 
           packages = {
-            evalSchema-light = lightCheck;
-            default = lightCheck;
+            inherit unit-tests;
+            default = unit-tests;
           };
 
           checks = {
-            evalSchema-light = lightCheck;
+            inherit (config.packages) unit-tests;
           };
 
           devShells.default = config.pre-commit.devShell;
